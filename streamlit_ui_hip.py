@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     ModelMessagesTypeAdapter
 )
-from optimized_hip_agent import hip_agent_expert, PydanticAIDeps
+from hip_agent import hip_agent_expert, PydanticAIDeps
 
 # Load environment variables
 from dotenv import load_dotenv
