@@ -1,7 +1,7 @@
 aiohttp>=3.9.1
 asyncio>=3.4.3
 beautifulsoup4>=4.12.3
-crawl4ai>=1.0.0
+crawl4ai>=0.4.2
 httpx>=0.26.0
 logfire>=0.8.0
 openai>=1.12.0
