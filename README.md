@@ -16,23 +16,23 @@ of knowledge in the posts of hip resurfacing group members.
 The dataset consists of posts that are chunked and embedded into the Supabase database.
 The information stored includes the following for each chunk in a message:
 
-**message url**
-**chunk number**
-**message title** 
-**message summary** 
-**chunk content** 
-**metadata** 
-**embedding** 
+- **message url**
+- **chunk number**
+- **message title** 
+- **message summary** 
+- **chunk content** 
+- **metadata** 
+- **embedding** 
 
 The metadata consists of the following:
 
-**source:** hip_messages
-**chunk_size:** len(chunk)
-**crawled_at:** datetime.now(timezone.utc).isoformat()
-**url_path:** urlparse(url).path
-**started_date:** topic_data['started_date']
-**most_recent_date:** topic_data['most_recent_date']
-**total_chunks:** len(chunks)
+- **source:** hip_messages
+- **chunk_size:** len(chunk)
+- **crawled_at:** datetime.now(timezone.utc).isoformat()
+- **url_path:** urlparse(url).path
+- **started_date:** topic_data['started_date']
+- **most_recent_date:** topic_data['most_recent_date']
+- **total_chunks:** len(chunks)
 
 The Supabase database table currently contains 19,613 records.
 
