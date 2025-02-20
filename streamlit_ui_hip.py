@@ -27,6 +27,7 @@ from hip_agent import hip_agent_expert, PydanticAIDeps
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
+llm_model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
 api_key = st.secrets["OPENAI_API_KEY"]
 openai_client = AsyncOpenAI(api_key)
 #openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
