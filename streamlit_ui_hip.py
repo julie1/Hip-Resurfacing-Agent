@@ -28,8 +28,8 @@ from hip_agent import hip_agent_expert, PydanticAIDeps
 from dotenv import load_dotenv
 load_dotenv()
 llm_model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
-api_key = st.secrets["OPENAI_API_KEY"]
-openai_client = AsyncOpenAI(api_key)
+#api_key = st.secrets["OPENAI_API_KEY"]
+openai_client = AsyncOpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 #openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 supabase: Client = Client(
     supabase_url = st.secrets["SUPABASE_URL"],
