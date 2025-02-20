@@ -6,6 +6,7 @@ import logfire
 import asyncio
 import httpx
 import os
+import streamlit as st
 
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models.openai import OpenAIModel
@@ -14,8 +15,8 @@ from supabase import Client
 from typing import List
 
 load_dotenv()
-
-llm = os.getenv('LLM_MODEL', 'gpt-4o-mini')
+llm_model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
+#llm = os.getenv('LLM_MODEL', 'gpt-4o-mini')
 model = OpenAIModel(llm)
 
 logfire.configure(send_to_logfire='if-token-present')
