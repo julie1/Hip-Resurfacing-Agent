@@ -31,7 +31,7 @@ api_key = st.secrets["OPENAI_API_KEY"]
 openai_client = AsyncOpenAI(api_key)
 #openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 supabase: Client = Client(
-    supabase_url = st.secrets["SUPABASE_URL"]
+    supabase_url = st.secrets["SUPABASE_URL"],
     supabase_key = st.secrets["SUPABASE_KEY"]
 
     #os.getenv("SUPABASE_URL"),
