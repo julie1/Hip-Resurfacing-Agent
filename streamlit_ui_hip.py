@@ -27,11 +27,15 @@ from hip_agent import hip_agent_expert, PydanticAIDeps
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
-
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = st.secrets["OPENAI_API_KEY"]
+openai_client = AsyncOpenAI(api_key)
+#openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 supabase: Client = Client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY")
+    supabase_url = st.secrets["SUPABASE_URL"]
+    supabase_key = st.secrets["SUPABASE_KEY"]
+
+    #os.getenv("SUPABASE_URL"),
+    #os.getenv("SUPABASE_SERVICE_KEY")
 )
 
 # Configure logfire to suppress warnings (optional)
@@ -106,7 +110,7 @@ async def run_agent_with_streaming(user_input: str):
 
 async def main():
     st.title("Hip Resurfacing Agent")
-    st.write("Ask any question that might be discussed in the posts of members of Hipresurfacingsite@groups.io.")
+    st.write("Ask any question that might be discussed in the posts of members of https://groups.io/g/Hipresurfacingsite.")
 
     # Initialize chat history in session state if not present
     if "messages" not in st.session_state:
