@@ -14,8 +14,8 @@ from supabase import Client
 from typing import List
 
 load_dotenv()
-
-llm = os.getenv('LLM_MODEL', 'gpt-4o-mini')
+#llm = os.getenv('LLM_MODEL', 'gpt-4o-mini')
+llm = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
 model = OpenAIModel(llm)
 
 logfire.configure(send_to_logfire='if-token-present')
