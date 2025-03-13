@@ -44,7 +44,7 @@ The Qdrant database table currently contains 23,587 points_count.
 - conda
 - Streamlit for browser interactions with the applicatio
 - Supabase, a postgres database, was previously used
--                
+                
 ## LLM   
 
 The app is currently powered by openai's gpt-4o-mini which gave the best results within the current budget. 
