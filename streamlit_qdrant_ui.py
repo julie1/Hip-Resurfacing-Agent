@@ -114,8 +114,8 @@ def clear_conversation():
 
 
 async def main():
-    st.title("Hip Resurfacing Agent")
-    st.write("Ask any question that might be discussed in the posts of members of https://groups.io/g/Hipresurfacingsite.")
+    st.title("Hip Resurfacing Search Engine")
+    st.write("Ask any question to retrieve information from the posts of members of https://groups.io/g/Hipresurfacingsite.")
 
     # Add clear conversation button in the sidebar
     with st.sidebar:
