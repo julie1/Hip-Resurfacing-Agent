@@ -13,7 +13,7 @@ of knowledge in the posts of hip resurfacing group members.
 
 ## Data
 
-The dataset consists of posts that are chunked and embedded into the Supabase database.
+The dataset consists of posts that are chunked and embedded into the Qdrant database.
 The information stored includes the following for each chunk in a message:
 
 - **message url**
@@ -34,27 +34,33 @@ The metadata consists of the following:
 - **most_recent_date:** topic_data['most_recent_date']
 - **total_chunks:** len(chunks)
 
-The Supabase database table currently contains 19,613 records.
+The Qdrant database table currently contains 23,587 points_count.
 
 ## Technologies
 
 - Python 3.12
-- Supabase is a postgres database
+- Qdrant is a vector database
 - OpenAI as an LLM
 - conda
 - Streamlit for browser interactions with the applicatio
-                  
+- Supabase, a postgres database, was previously used
+-                
 ## LLM   
 
 The app is currently powered by openai's gpt-4o-mini which gave the best results within the current budget. 
 
 ## Code
 
+The code associated with the Supabase database is in the Supabase folder.
+
 - [`paginationcrawlerv2.py`] - obtains a json file containing url's, titles, and dates of messages
-- [`corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
-- [`hip_agent.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
-- [`streamlit_ui_hip.py`] - creates the Streamlit user interface for this app
-- [`updated_schema.sql`] - creates the Supabase table containing the message data
+- [`qdrant_ingestion.py`] - obtains summary of message and chunks content, inserts it into Qdrant with a vector embedding
+- [`hip_agent_qdrant.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
+- [`streamlit_qdrant__ui.py`] - creates the Streamlit user interface for this app
+- [`Supabase/corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
+- [`Supabase/updated_schema.sql`] - creates the Supabase table containing the message data
+- [`Supabase/hip_agent.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
+- [`Supabase/streamlit__ui.py`] - creates the Streamlit user interface for this app
 
 ###  How to use
 
@@ -63,7 +69,7 @@ Please see https://github.com/julie1/Find-a-Doctor for more detailed information
 1. Create a Python environment
 2. clone the repository
 3. adjust the code to your particular use case
-4. obtain the openai key, the supabase url and service key, then fill out the .env file with these and put this into your local
+4. obtain the openai key, the qdrant url and service key, then fill out the .env file with these and put this into your local
 environment
 5. ```bash
    cd Hip-Resurfacing-Agent
