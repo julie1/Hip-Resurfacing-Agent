@@ -42,6 +42,7 @@ When answering questions:
 5. Synthesize information from multiple posts when relevant
 6. Maintain awareness of post dates to contextualize information
 7. Focus only on hip resurfacing related content
+8. Weight the latest dated posts over earlier ones unless the information cannot be found in the later posts.
 
 Important: Don't make claims without supporting evidence from the posts. If you can't find relevant information, clearly state that limitation.
 """
@@ -150,7 +151,7 @@ async def diagnose_qdrant_setup(ctx: RunContext[PydanticAIDeps]) -> str:
 
     except Exception as e:
         return f"Error diagnosing Qdrant setup: {str(e)}"
-        
+
 @hip_agent_expert.tool
 async def check_qdrant_connection(ctx: RunContext[PydanticAIDeps]) -> str:
     """Check if Qdrant connection is working and count documents."""
