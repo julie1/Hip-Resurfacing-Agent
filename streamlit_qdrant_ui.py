@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 import asyncio
 import os
+import tiktoken  # Add this import for token counting
 
 import streamlit as st
 import json
@@ -28,6 +29,7 @@ from hip_agent_qdrant import hip_agent_expert, PydanticAIDeps
 from dotenv import load_dotenv
 load_dotenv()
 llm_model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
+TOKEN_LIMIT = 100000  # Set a conservative token limit (below the 128K max)
 
 openai_client = AsyncOpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -46,6 +48,30 @@ class ChatMessage(TypedDict):
     role: Literal['user', 'model']
     timestamp: str
     content: str
+
+
+def count_tokens(messages):
+    """
+    Count tokens in a list of messages.
+    """
+    try:
+        encoding = tiktoken.encoding_for_model(llm_model)
+        total_tokens = 0
+        
+        for msg in messages:
+            if isinstance(msg, (ModelRequest, ModelResponse)):
+                for part in msg.parts:
+                    if hasattr(part, 'content'):
+                        total_tokens += len(encoding.encode(part.content))
+        
+        return total_tokens
+    except Exception as e:
+        # Fallback to approximate counting if tiktoken fails
+        st.error(f"Error counting tokens: {e}")
+        total_chars = sum(len(part.content) for msg in messages 
+                       for part in msg.parts 
+                       if isinstance(msg, (ModelRequest, ModelResponse)) and hasattr(part, 'content'))
+        return total_chars // 4  # Rough approximation: 1 token ≈ 4 characters
 
 
 def display_message_part(part):
@@ -73,6 +99,14 @@ async def run_agent_with_streaming(user_input: str):
     Run the agent with streaming text for the user_input prompt,
     while maintaining the entire conversation in `st.session_state.messages`.
     """
+    # Check if we need to clear the conversation due to token limits
+    current_tokens = count_tokens(st.session_state.messages)
+    if current_tokens > TOKEN_LIMIT:
+        clear_conversation(auto=True)
+        # Add a notification that conversation was cleared
+        st.session_state.conversation_cleared = True
+        st.info("Previous conversation history has been cleared to optimize performance. Your question will still receive an accurate answer.")
+    
     # Prepare dependencies
     deps = PydanticAIDeps(
         qdrant_client=qdrant_client,
@@ -107,10 +141,22 @@ async def run_agent_with_streaming(user_input: str):
         )
 
 
-def clear_conversation():
-    """Clear the conversation history."""
+def clear_conversation(auto=False):
+    """
+    Clear the conversation history.
+    If auto=True, this was triggered automatically due to token limits.
+    """
     st.session_state.messages = []
-    st.rerun()
+    if auto:
+        # Add a system message explaining the reset
+        st.session_state.messages.append(
+            ModelResponse(parts=[
+                SystemPromptPart(content="Conversation has been reset due to token limits. You can continue asking questions.")
+            ])
+        )
+    else:
+        # Manual clear by user
+        st.rerun()
 
 
 async def main():
@@ -123,10 +169,26 @@ async def main():
         st.title("Options")
         if st.button("Clear Conversation"):
             clear_conversation()
+        
+        # Add token usage indicator
+        if "messages" in st.session_state and st.session_state.messages:
+            current_tokens = count_tokens(st.session_state.messages)
+            st.progress(min(1.0, current_tokens / TOKEN_LIMIT))
+            st.caption(f"Token usage: {current_tokens}/{TOKEN_LIMIT}")
 
     # Initialize chat history in session state if not present
     if "messages" not in st.session_state:
         st.session_state.messages = []
+    
+    # Initialize conversation_cleared flag if not present
+    if "conversation_cleared" not in st.session_state:
+        st.session_state.conversation_cleared = False
+
+    # Show notification if conversation was cleared
+    if st.session_state.conversation_cleared:
+        st.info("Previous conversation history has been cleared to optimize performance. Your new questions will still receive accurate answers.")
+        # Reset the flag after displaying the message
+        st.session_state.conversation_cleared = False
 
     # Display all messages from the conversation so far
     # Each message is either a ModelRequest or ModelResponse.
