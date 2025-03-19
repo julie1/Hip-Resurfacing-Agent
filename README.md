@@ -34,7 +34,7 @@ The metadata consists of the following:
 - **most_recent_date:** topic_data['most_recent_date']
 - **total_chunks:** len(chunks)
 
-The Qdrant database table currently contains 23,587 points_count.
+The Qdrant database table currently contains 23,598 points_count.
 
 ## Technologies
 
@@ -55,8 +55,10 @@ The code associated with the Supabase database is in the Supabase folder.
 
 - [`paginationcrawlerv2.py`] - obtains a json file containing url's, titles, and dates of messages
 - [`qdrant_ingestion.py`] - obtains summary of message and chunks content, inserts it into Qdrant with a vector embedding
+- [`check_qdrant_dates.py`] - obtains the latest started_date in Qdrant which is used in the following incremental update
+- [`incremental_update_script.py`] - implements the crawler and ingestion pipeline for just the latest messages 
 - [`hip_agent_qdrant.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
-- [`streamlit_qdrant__ui.py`] - creates the Streamlit user interface for this app
+- [`streamlit_qdrant__ui.py`] - creates the Streamlit user interface for this app 
 - [`Supabase/corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
 - [`Supabase/updated_schema.sql`] - creates the Supabase table containing the message data
 - [`Supabase/hip_agent.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
