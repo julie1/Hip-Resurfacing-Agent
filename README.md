@@ -1,19 +1,18 @@
 # Hip-Resurfacing-Agent
 
-This repository is a rag (retrieval augmented generation) streamlit application for posts of the group https://groups.io/g/Hipresurfacingsite.  To use the app please go to https://hipresurfacingagent.streamlit.app/ and ask a question. Note that the code here can easily be adapted to create a
-rag search engine for any on-line forum.
+This repository is a rag (retrieval augmented generation) streamlit application for posts of the groups https://surfacehippy.info/hiptalk/ and https://groups.io/g/Hipresurfacingsite.  To use the app please go to https://hipresurfacingagent.streamlit.app/ and ask a question. Note that the code here can easily be adapted to create a rag search engine for any on-line forum.
 
 ## Overview
 
-Since 2010 prospective hip surgery patients and former patients have posted questions and 
+Since 2005 prospective hip surgery patients and former patients have posted questions and 
 related experiences on a wide range of topics related to hip dysfunction and potential
 surgeries mostly hip resurfacing to improve mobility and relieve pain. This app uses a
 Large Language Model (LLM) approach to facilitate the search for answers from the wealth 
-of knowledge in the posts of hip resurfacing group members.
+of knowledge in the posts of surface hippy and hip resurfacing group members.
 
 ## Data
 
-The dataset consists of posts that are chunked and embedded into the Qdrant database.
+The dataset consists of posts that are chunked and embedded into the Pincone and Qdrant databases.
 The information stored includes the following for each chunk in a message:
 
 - **message url**
@@ -34,7 +33,8 @@ The metadata consists of the following:
 - **most_recent_date:** topic_data['most_recent_date']
 - **total_chunks:** len(chunks)
 
-The Qdrant database table currently contains 23,598 points_count.
+The Pinecone record count currently contains 34,729 records.
+The Qdrant database table currently contains 23,622 points_count.
 
 ## Technologies
 
@@ -53,12 +53,14 @@ The app is currently powered by openai's gpt-4o-mini which gave the best results
 
 The code associated with the Supabase database is in the Supabase folder.
 
-- [`paginationcrawlerv2.py`] - obtains a json file containing url's, titles, and dates of messages
+- [`forum_crawler.py`] - obtains a json file containing url's, titles, and dates of messages from https://surfacehippy.info/hiptalk/ 
+- [`paginationcrawlerv2.py`] - obtains a json file containing url's, titles, and dates of messages from https://groups.io/g/Hipresurfacingsite
+- [`pinecone_ingestion.py`] - obtains summary of message and chunks content, inserts it into Pinecone with a vector embedding
 - [`qdrant_ingestion.py`] - obtains summary of message and chunks content, inserts it into Qdrant with a vector embedding
 - [`check_qdrant_dates.py`] - obtains the latest started_date in Qdrant which is used in the following incremental update
 - [`incremental_update_script.py`] - implements the crawler and ingestion pipeline for just the latest messages 
-- [`hip_agent_qdrant.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
-- [`streamlit_qdrant__ui.py`] - creates the Streamlit user interface for this app 
+- [`combined_agents.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
+- [`streamlit_ui.py`] - creates the Streamlit user interface for this app 
 - [`Supabase/corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
 - [`Supabase/updated_schema.sql`] - creates the Supabase table containing the message data
 - [`Supabase/hip_agent.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
