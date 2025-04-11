@@ -59,7 +59,7 @@ The code associated with the Supabase database is in the Supabase folder.
 - [`qdrant_ingestion.py`] - obtains summary of message and chunks content, inserts it into Qdrant with a vector embedding
 - [`check_qdrant_dates.py`] - obtains the latest started_date in Qdrant which is used in the following incremental update
 - [`incremental_update_script.py`] - implements the crawler and ingestion pipeline for just the latest messages 
-- [`combined_agents.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
+- [`combine_agents.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
 - [`streamlit_ui.py`] - creates the Streamlit user interface for this app 
 - [`Supabase/corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
 - [`Supabase/updated_schema.sql`] - creates the Supabase table containing the message data
