@@ -56,9 +56,10 @@ The code associated with the Supabase database is in the Supabase folder.
 - [`forum_crawler.py`] - obtains a json file containing url's, titles, and dates of messages from https://surfacehippy.info/hiptalk/ 
 - [`paginationcrawlerv2.py`] - obtains a json file containing url's, titles, and dates of messages from https://groups.io/g/Hipresurfacingsite
 - [`pinecone_ingestion.py`] - obtains summary of message and chunks content, inserts it into Pinecone with a vector embedding
+- [`improved_incremental_pinecone_update.py`] - implements the crawler and ingestion pipeline for just the latest messages from https://surfacehippy.info/hiptalk/ 
 - [`qdrant_ingestion.py`] - obtains summary of message and chunks content, inserts it into Qdrant with a vector embedding
 - [`check_qdrant_dates.py`] - obtains the latest started_date in Qdrant which is used in the following incremental update
-- [`incremental_update_script.py`] - implements the crawler and ingestion pipeline for just the latest messages 
+- [`incremental_update_qdrant.py`] - implements the crawler and ingestion pipeline for just the latest messages from https://groups.io/g/Hipresurfacingsite
 - [`combine_agents.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
 - [`streamlit_ui.py`] - creates the Streamlit user interface for this app 
 - [`Supabase/corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
