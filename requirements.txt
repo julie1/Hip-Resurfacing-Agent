@@ -12,4 +12,5 @@ python-dotenv>=1.0.0
 streamlit>=1.31.1
 supabase>=2.3.1
 qdrant_client>=1.13.3
+pinecone>=6.0.2
 
