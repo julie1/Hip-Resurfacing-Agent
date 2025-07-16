@@ -39,8 +39,10 @@ The Qdrant database table currently contains 23,622 points_count.
 ## Technologies
 
 - Python 3.12
+- Pinecone is a vector database
 - Qdrant is a vector database
 - OpenAI as an LLM
+- Langfuse for monitoring and evaluations
 - conda
 - Streamlit for browser interactions with the applicatio
 - Supabase, a postgres database, was previously used
