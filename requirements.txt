@@ -9,5 +9,5 @@ playwright==1.52.0
 qdrant-client==1.14.3
 psycopg==3.2.1
 pydantic-ai==0.3.3
-
+tiktoken==0.9.0
 
