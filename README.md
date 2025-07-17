@@ -44,7 +44,7 @@ The Qdrant database table currently contains 23,631 points_count.
 - OpenAI as an LLM
 - Langfuse for monitoring and evaluations
 - conda
-- Streamlit for browser interactions with the applicatio
+- Streamlit for browser interactions with the application
 - Supabase, a postgres database, was previously used
                 
 ## LLM   
