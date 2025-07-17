@@ -33,8 +33,8 @@ The metadata consists of the following:
 - **most_recent_date:** topic_data['most_recent_date']
 - **total_chunks:** len(chunks)
 
-The Pinecone record count currently contains 34,729 records.
-The Qdrant database table currently contains 23,622 points_count.
+The Pinecone record count currently contains 35,031 records.
+The Qdrant database table currently contains 23,631 points_count.
 
 ## Technologies
 
@@ -55,15 +55,18 @@ The app is currently powered by openai's gpt-4o-mini which gave the best results
 
 The code associated with the Supabase database is in the Supabase folder.
 
-- [`forum_crawler.py`] - obtains a json file containing url's, titles, and dates of messages from https://surfacehippy.info/hiptalk/ 
+- [`forum_crawler_fixed.py`] - obtains a json file containing url's, titles, and dates of messages from https://surfacehippy.info/hiptalk/ 
 - [`paginationcrawlerv2.py`] - obtains a json file containing url's, titles, and dates of messages from https://groups.io/g/Hipresurfacingsite
 - [`pinecone_ingestion.py`] - obtains summary of message and chunks content, inserts it into Pinecone with a vector embedding
-- [`improved_incremental_pinecone_update.py`] - implements the crawler and ingestion pipeline for just the latest messages from https://surfacehippy.info/hiptalk/ 
+- [`incremental_pinecone_update.py`] - implements the crawler and ingestion pipeline for just the latest messages from https://surfacehippy.info/hiptalk/ 
 - [`qdrant_ingestion.py`] - obtains summary of message and chunks content, inserts it into Qdrant with a vector embedding
 - [`check_qdrant_dates.py`] - obtains the latest started_date in Qdrant which is used in the following incremental update
 - [`incremental_update_qdrant.py`] - implements the crawler and ingestion pipeline for just the latest messages from https://groups.io/g/Hipresurfacingsite
-- [`combine_agents.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
-- [`streamlit_ui.py`] - creates the Streamlit user interface for this app 
+- [`combine_agents_langfuse.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages as well as langfuse monitoring
+- [`configure_langfuse_v3.py`] - initiation file for langfuse monitoring and evaluation
+- [`langfuse_dashboard_v3.py`] - opens langfuse dasboard and records user feedback
+- [`streamlit_ui.py`] - creates the Streamlit user interface for this app
+- [`old_deployment`] - folder contains old code without Langfuse and with other problems
 - [`Supabase/corrected_ingestion.py`] - obtains summary of message and chunks content, inserts it into Supabase with a vector embedding
 - [`Supabase/updated_schema.sql`] - creates the Supabase table containing the message data
 - [`Supabase/hip_agent.py`] - uses pydantic-ai agent methods and the LLM to retrieve data to answer user messages
