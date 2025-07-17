@@ -81,10 +81,11 @@ Please see https://github.com/julie1/Find-a-Doctor for more detailed information
 3. adjust the code to your particular use case
 4. obtain the openai key, the qdrant url and service key, then fill out the .env file with these and put this into your local
 environment
-5. ```bash
+5. My requirements.txt here is the minimal file for deployment to streamlit.  See the old_deployment for a more comprehensive requirements list.
+6. ```bash
    cd Hip-Resurfacing-Agent
    pip install -r requirements.txt
-6. run the crawler, then ingestion, then streamlit scripts
+7. run the crawler, then ingestion, then streamlit scripts
    
 
 ## Acknowledgments
