@@ -159,73 +159,184 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
 
     return chunks
 
+import re
+from datetime import datetime
+from bs4 import BeautifulSoup
+
 async def extract_started_date(html: str) -> str:
-    """Extract the started_date from the first message in a forum topic."""
+    """
+    Extracts the 'Started by ...' date from Surface Hippy forum topic pages.
+    Example target:
+      <p>Started by ocwa80, October 09, 2025, 10:36:02 AM</p>
+    Returns: '2025-10-09' or None if not found.
+    """
     try:
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(html, "html.parser")
 
-        # First look for the specific format in this forum
-        # Format: <div class="smalltext">« <strong> on:</strong> March 15, 2025, 11:24:52 AM »</div>
-        on_pattern = soup.select('div.smalltext strong:contains("on:")')
-        if on_pattern:
-            for element in on_pattern:
-                parent = element.parent
-                if parent:
-                    date_text = parent.text.strip()
-                    # Extract date after "on:"
-                    if "on:" in date_text:
-                        date_part = date_text.split("on:")[1].strip()
-                        # Now extract just the date portion before the time
-                        if "," in date_part:
-                            date_parts = date_part.split(',')
-                            if len(date_parts) >= 2:
-                                # Combine month day and year
-                                date_str = date_parts[0] + "," + date_parts[1]
-                                try:
-                                    date_obj = datetime.strptime(date_str.strip(), '%B %d, %Y')
-                                    return date_obj.strftime('%Y-%m-%d')
-                                except Exception as e:
-                                    print(f"Error parsing specific date format: {date_str} - {e}")
+        # Find paragraph containing "Started by"
+        started_tag = soup.find("p", string=re.compile(r"Started by", re.I))
+        if not started_tag:
+            # Some pages might use slightly different structure, search fallback
+            started_tag = soup.find(
+                text=re.compile(r"Started by\s+.*,\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", re.I)
+            )
 
-        # Fallback: Look for any text that matches date pattern using regex
-        import re
-        full_date_pattern = re.compile(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}')
+        if started_tag:
+            text = started_tag.get_text() if hasattr(started_tag, "get_text") else str(started_tag)
+            # Extract the full date portion
+            m = re.search(
+                r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}(?:,\s*\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM))?",
+                text
+            )
+            if m:
+                date_str = m.group(0)
+                for fmt in ("%B %d, %Y, %I:%M:%S %p", "%B %d, %Y"):
+                    try:
+                        dt = datetime.strptime(date_str, fmt)
+                        return dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        continue
 
-        all_text = soup.text
-        date_matches = full_date_pattern.findall(all_text)
-
-        if date_matches:
-            # Search for the complete date string in the text
-            complete_matches = re.findall(r'((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4})', all_text)
-            if complete_matches:
-                try:
-                    date_obj = datetime.strptime(complete_matches[0], '%B %d, %Y')
-                    return date_obj.strftime('%Y-%m-%d')
-                except Exception as e:
-                    print(f"Error parsing date match: {complete_matches[0]} - {e}")
-
-        print(f"No valid date found in the page content")
+        print("⚠️ Could not find 'Started by' date pattern in topic page.")
         return None
+
     except Exception as e:
         print(f"Error extracting started date: {e}")
         return None
-        
-async def generate_summary(text: str, openai_client: AsyncOpenAI) -> str:
-    """Generate a summary using GPT-4o-mini."""
-    summary_prompt = """Create a concise summary for this forum post that captures the key points of the discussion."""
+
+# async def extract_started_date(html: str) -> str:
+#     """Extract the started_date from the first message in a forum topic."""
+#     try:
+#         soup = BeautifulSoup(html, 'html.parser')
+#
+#         # First look for the specific format in this forum
+#         # Format: <div class="smalltext">« <strong> on:</strong> March 15, 2025, 11:24:52 AM »</div>
+#         on_pattern = soup.select('div.smalltext strong:contains("on:")')
+#         if on_pattern:
+#             for element in on_pattern:
+#                 parent = element.parent
+#                 if parent:
+#                     date_text = parent.text.strip()
+#                     # Extract date after "on:"
+#                     if "on:" in date_text:
+#                         date_part = date_text.split("on:")[1].strip()
+#                         # Now extract just the date portion before the time
+#                         if "," in date_part:
+#                             date_parts = date_part.split(',')
+#                             if len(date_parts) >= 2:
+#                                 # Combine month day and year
+#                                 date_str = date_parts[0] + "," + date_parts[1]
+#                                 try:
+#                                     date_obj = datetime.strptime(date_str.strip(), '%B %d, %Y')
+#                                     return date_obj.strftime('%Y-%m-%d')
+#                                 except Exception as e:
+#                                     print(f"Error parsing specific date format: {date_str} - {e}")
+#
+#         # Fallback: Look for any text that matches date pattern using regex
+#         import re
+#         full_date_pattern = re.compile(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}')
+#
+#         all_text = soup.text
+#         date_matches = full_date_pattern.findall(all_text)
+#
+#         if date_matches:
+#             # Search for the complete date string in the text
+#             complete_matches = re.findall(r'((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4})', all_text)
+#             if complete_matches:
+#                 try:
+#                     date_obj = datetime.strptime(complete_matches[0], '%B %d, %Y')
+#                     return date_obj.strftime('%Y-%m-%d')
+#                 except Exception as e:
+#                     print(f"Error parsing date match: {complete_matches[0]} - {e}")
+#
+#         print(f"No valid date found in the page content")
+#         return None
+#     except Exception as e:
+#         print(f"Error extracting started date: {e}")
+#         return None
+
+
+async def generate_summary(text: str, title: str, openai_client: AsyncOpenAI) -> str:
+    """Generate a summary using GPT-4o-mini with better context and prompting."""
+
+    # Take more content but still within reasonable limits
+    content_sample = text[:4000] if len(text) > 4000 else text
+
+    summary_prompt = f"""You are summarizing a forum post from a hip resurfacing discussion forum.
+
+Post Title: "{title}"
+
+Please create a concise 2-3 sentence summary that captures:
+1. The main topic/question being discussed
+2. Key points or concerns raised
+3. Any specific advice, experiences, or outcomes mentioned
+
+Focus on what makes THIS post unique and valuable, not generic forum information."""
 
     try:
         response = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": summary_prompt},
-                {"role": "user", "content": f"Content:\n{text[:2000]}..."}
-            ]
+                {"role": "user", "content": f"Forum Post Content:\n{content_sample}"}
+            ],
+            max_tokens=150,  # Limit summary length
+            temperature=0.3  # Lower temperature for more consistent summaries
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"Error generating summary: {e}")
-        return "Error generating summary"
+        return f"Forum discussion about {title}"
+
+
+
+async def process_url(topic: Dict,
+                      openai_client: AsyncOpenAI,
+                      url_processor: PineconeURLProcessor,
+                      chunk_semaphore: asyncio.Semaphore,
+                      browser_config: BrowserConfig,
+                      crawl_config: CrawlerRunConfig):
+    """Process a single URL with its metadata."""
+    url = topic['url']
+    title = topic.get('subject', 'Unknown Topic')  # Get the title from topic data
+    crawler = AsyncWebCrawler(config=browser_config)
+
+    try:
+        await crawler.start()
+        result = await crawler.arun(url=url, config=crawl_config, session_id="session1")
+
+        if result.success:
+            content = result.markdown.raw_markdown
+            chunks = chunk_text(content)
+
+            # Extract the started_date from the HTML
+            started_date = await extract_started_date(result.html)
+            if not started_date:
+                print(f"Warning: Could not extract started_date for {url}")
+                started_date = "unknown"
+            else:
+                print(f"Extracted started_date: {started_date} for {url}")
+
+            if chunks:
+                # Generate summary once for all chunks - NOW WITH TITLE CONTEXT
+                summary = await generate_summary(content, title, openai_client)
+                print(f"\nProcessing {url}")
+                print(f"Title: {title}")
+                print(f"Generated summary: {summary}")
+
+                await process_chunks(chunks, url, topic, summary, started_date,
+                                   openai_client, url_processor,
+                                   chunk_semaphore)
+            else:
+                print(f"No content found for {url}")
+        else:
+            print(f"Failed to crawl: {url} - Error: {result.error_message}")
+
+    except Exception as e:
+        print(f"Error processing {url}: {e}")
+    finally:
+        await crawler.close()
+
 
 async def process_chunks(chunks: List[str], url: str, topic_data: Dict,
                         summary: str, started_date: str, openai_client: AsyncOpenAI,
@@ -282,6 +393,7 @@ async def process_chunks(chunks: List[str], url: str, topic_data: Dict,
     else:
         print(f"All chunks already processed for {url}")
 
+
 async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
     """Crawl multiple URLs in parallel using pre-crawled metadata."""
     browser_config = BrowserConfig(
@@ -292,56 +404,79 @@ async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
     crawl_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
     chunk_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
     url_processor = PineconeURLProcessor()
-
-    async def process_url(topic: Dict):
-        """Process a single URL with its metadata."""
-        url = topic['url']
-        crawler = AsyncWebCrawler(config=browser_config)
-
-        try:
-            await crawler.start()
-            result = await crawler.arun(url=url, config=crawl_config, session_id="session1")
-
-            if result.success:
-                content = result.markdown_v2.raw_markdown
-                chunks = chunk_text(content)
-
-                # Extract the started_date from the HTML
-                started_date = await extract_started_date(result.html)
-                if not started_date:
-                    print(f"Warning: Could not extract started_date for {url}")
-                    started_date = "unknown"  # Fallback value
-                else:
-                    print(f"Extracted started_date: {started_date} for {url}")
-
-                if chunks:
-                    # Generate summary once for all chunks
-                    summary = await generate_summary(content, openai_client)
-                    print(f"\nProcessing {url}")
-                    print(f"Generated summary: {summary[:100]}...")
-
-                    await process_chunks(chunks, url, topic, summary, started_date,
-                                       openai_client, url_processor,
-                                       chunk_semaphore)
-                else:
-                    print(f"No content found for {url}")
-            else:
-                print(f"Failed to crawl: {url} - Error: {result.error_message}")
-
-        except Exception as e:
-            print(f"Error processing {url}: {e}")
-        finally:
-            await crawler.close()
-
-    # Process URLs in parallel with rate limiting
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CRAWLS)
+
     async def process_with_semaphore(topic):
         async with semaphore:
-            await process_url(topic)
-            await asyncio.sleep(1)  # Rate limiting
+            # Use the global process_url() that handles title, started_date, etc.
+            await process_url(topic, openai_client, url_processor, chunk_semaphore,
+                              browser_config, crawl_config)
+            await asyncio.sleep(1)  # Simple rate limiting
 
+    # Now create tasks *after* defining the helper function
     tasks = [process_with_semaphore(topic) for topic in topic_data]
     await asyncio.gather(*tasks)
+
+# async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
+#     """Crawl multiple URLs in parallel using pre-crawled metadata."""
+#     browser_config = BrowserConfig(
+#         headless=True,
+#         verbose=False,
+#         extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+#     )
+#     crawl_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
+#     chunk_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
+#     url_processor = PineconeURLProcessor()
+#     tasks = [process_with_semaphore(topic) for topic in topic_data]
+#
+#     async def process_with_semaphore(topic):
+#         async with semaphore:
+#             await process_url(topic, openai_client, url_processor, chunk_semaphore)
+#             await asyncio.sleep(1)
+#     async def process_url(topic: Dict):
+#         """Process a single URL with its metadata."""
+#         url = topic['url']
+#         crawler = AsyncWebCrawler(config=browser_config)
+#
+#         try:
+#             await crawler.start()
+#             result = await crawler.arun(url=url, config=crawl_config, session_id="session1")
+#
+#             if result.success:
+#                 content = result.markdown.raw_markdown
+#                 chunks = chunk_text(content)
+#
+#                 # Extract the started_date from the HTML
+#                 started_date = await extract_started_date(result.html)
+#                 if not started_date:
+#                     print(f"Warning: Could not extract started_date for {url}")
+#                     started_date = "unknown"  # Fallback value
+#                 else:
+#                     print(f"Extracted started_date: {started_date} for {url}")
+#
+#                 if chunks:
+#                     # Generate summary once for all chunks
+#                     summary = await generate_summary(content, openai_client)
+#                     print(f"\nProcessing {url}")
+#                     print(f"Generated summary: {summary[:100]}...")
+#
+#                     await process_chunks(chunks, url, topic, summary, started_date,
+#                                        openai_client, url_processor,
+#                                        chunk_semaphore)
+#                 else:
+#                     print(f"No content found for {url}")
+#             else:
+#                 print(f"Failed to crawl: {url} - Error: {result.error_message}")
+#
+#         except Exception as e:
+#             print(f"Error processing {url}: {e}")
+#         finally:
+#             await crawler.close()
+#
+#     # Process URLs in parallel with rate limiting
+#     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CRAWLS)
+#     tasks = [process_with_semaphore(topic) for topic in topic_data]
+#     await asyncio.gather(*tasks)
 
 async def main():
     print("Starting ingestion process with Pinecone...")
