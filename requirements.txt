@@ -1,4 +1,5 @@
 httpx==0.28.1
+beautifulsoup4==4.13.4
 langfuse==3.0.0
 logfire==3.21.1
 nest-asyncio==1.6.0
