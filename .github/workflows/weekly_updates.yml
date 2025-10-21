@@ -42,7 +42,6 @@ jobs:
         echo "Starting Pinecone incremental update..."
         python incremental_pinecone_ingestion.py 2>&1 | tee pinecone_update.log
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
-      continue-on-error: true
     
     - name: Run Qdrant incremental update
       id: qdrant
@@ -58,7 +57,6 @@ jobs:
         echo "Starting Qdrant incremental update..."
         python incremental_update_qdrant.py 2>&1 | tee qdrant_update.log
         echo "qdrant_status=success" >> $GITHUB_OUTPUT
-      continue-on-error: true
     
     - name: Run Qdrant keep-alive query
       id: keepalive
@@ -70,7 +68,6 @@ jobs:
         echo "Running Qdrant keep-alive query..."
         python qdrant_keep_alive.py 2>&1 | tee keepalive.log
         echo "keepalive_status=success" >> $GITHUB_OUTPUT
-      continue-on-error: true
     
     - name: Upload logs
       if: always()
@@ -94,5 +91,12 @@ jobs:
         echo "- Qdrant Keep-Alive: ${{ steps.keepalive.outcome }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "Check the uploaded artifacts for detailed logs." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.pinecone.outcome }}" != "success" ] || [ "${{ steps.qdrant.outcome }}" != "success" ] || [ "${{ steps.keepalive.outcome }}" != "success" ]; then
+          echo "⚠️ **One or more steps failed. Check the logs above.**" >> $GITHUB_STEP_SUMMARY
+          exit 1
+        else
+          echo "✅ **All steps completed successfully!**" >> $GITHUB_STEP_SUMMARY
+        fi_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "You will receive email notifications via your existing Yahoo mail setup." >> $GITHUB_STEP_SUMMARY
