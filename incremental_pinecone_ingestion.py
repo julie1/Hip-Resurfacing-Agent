@@ -3,7 +3,8 @@ import json
 import os
 import time
 import re
-from datetime import datetime
+import sys
+from datetime import datetime, timedelta, timezone
 from dateutil import parser
 from dotenv import load_dotenv
 from pinecone import Pinecone
@@ -75,8 +76,33 @@ def parse_date_string(date_str: str) -> str:
     try:
         date_str = date_str.strip()
 
-        # Remove time portion: ", 08:15:55 PM"
-        date_str = re.sub(r',?\s*\d{1,2}:\d{2}(:\d{2})?\s*[AP]M', '', date_str, flags=re.IGNORECASE)
+        # Handle relative dates FIRST (before removing time)
+        # Check for "Yesterday at HH:MM:SS PM" or just "Yesterday"
+        if date_str.lower().startswith("yesterday"):
+            yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+            return yesterday.strftime('%Y-%m-%d')
+
+        if date_str.lower().startswith("today"):
+            today = datetime.now(timezone.utc)
+            return today.strftime('%Y-%m-%d')
+
+        # Handle "X days ago at...", "X hours ago at...", etc.
+        time_ago_match = re.match(r'(\d+)\s+(day|hour|week)s?\s+ago', date_str.lower())
+        if time_ago_match:
+            amount = int(time_ago_match.group(1))
+            unit = time_ago_match.group(2)
+
+            if unit == 'day':
+                date_obj = datetime.now(timezone.utc) - timedelta(days=amount)
+            elif unit == 'hour':
+                date_obj = datetime.now(timezone.utc) - timedelta(hours=amount)
+            elif unit == 'week':
+                date_obj = datetime.now(timezone.utc) - timedelta(weeks=amount)
+
+            return date_obj.strftime('%Y-%m-%d')
+
+        # Remove time portion: ", 08:15:55 PM" or " at 08:15:55 PM"
+        date_str = re.sub(r'(\s+at\s+|,\s*)\d{1,2}:\d{2}(:\d{2})?\s*[AP]M', '', date_str, flags=re.IGNORECASE)
 
         date_patterns = [
             (r'([A-Za-z]+ \d+, \d{4})', '%B %d, %Y'),
@@ -95,6 +121,7 @@ def parse_date_string(date_str: str) -> str:
                     continue
 
         return None
+
     except Exception as e:
         print(f"Error parsing date '{date_str}': {e}")
         return None
@@ -427,4 +454,12 @@ async def main():
         print("No new topics found. Database is up to date.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+        print("\n✅ Pinecone ingestion completed successfully")
+        sys.exit(0)  # Exit with success code
+    except Exception as e:
+        print(f"\n❌ Pinecone ingestion FAILED: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)  # Exit with error code - this tells GitHub Actions it failed
