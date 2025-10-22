@@ -10,6 +10,7 @@ from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 import re
 import time
+import sys
 
 # Load environment variables
 load_dotenv()
@@ -269,4 +270,14 @@ async def main():
         print("No new topics found. Database is up to date.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if __name__ == "__main__":
+        try:
+            # Your existing main code here
+            asyncio.run(main())
+            print("\n✅ Qdrant ingestion completed successfully")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n❌ Qdrant ingestion FAILED: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
