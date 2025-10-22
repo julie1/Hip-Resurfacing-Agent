@@ -1,0 +1,110 @@
+name: Weekly Database Updates and Keep-Alive
+
+on:
+  schedule:
+    # Run every Monday at 10 AM UTC
+    - cron: '0 10 * * 1'
+  workflow_dispatch:  # Allows manual triggering for testing
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  weekly-updates:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Install Playwright browsers
+      run: |
+        playwright install
+        playwright install-deps
+    
+    - name: Run Pinecone incremental update
+      id: pinecone
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+        QDRANT_URL: ${{ secrets.QDRANT_URL }}
+        QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+        LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+        LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+      run: |
+        echo "Starting Pinecone incremental update..."
+        python incremental_pinecone_ingestion.py 2>&1 | tee pinecone_update.log
+        echo "pinecone_status=success" >> $GITHUB_OUTPUT
+    
+    - name: Run Qdrant incremental update
+      id: qdrant
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+        QDRANT_URL: ${{ secrets.QDRANT_URL }}
+        QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+        LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+        LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+      run: |
+        echo "Starting Qdrant incremental update..."
+        python incremental_update_qdrant.py 2>&1 | tee qdrant_update.log
+        echo "qdrant_status=success" >> $GITHUB_OUTPUT
+    
+    - name: Run Qdrant keep-alive query
+      id: keepalive
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        QDRANT_URL: ${{ secrets.QDRANT_URL }}
+        QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      run: |
+        echo "Running Qdrant keep-alive query..."
+        python qdrant_keep_alive.py 2>&1 | tee keepalive.log
+        echo "keepalive_status=success" >> $GITHUB_OUTPUT
+    
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: update-logs-${{ github.run_number }}
+        path: |
+          *.log
+        retention-days: 30
+    
+    - name: Create summary
+      if: always()
+      run: |
+        echo "## Weekly Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Results:" >> $GITHUB_STEP_SUMMARY
+        echo "- Pinecone Update: ${{ steps.pinecone.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Qdrant Update: ${{ steps.qdrant.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Qdrant Keep-Alive: ${{ steps.keepalive.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Check the uploaded artifacts for detailed logs." >> $GITHUB_STEP_SUMMARY
+    
+    - name: Check for failures
+      if: always()
+      run: |
+        if [ "${{ steps.pinecone.outcome }}" != "success" ] || [ "${{ steps.qdrant.outcome }}" != "success" ] || [ "${{ steps.keepalive.outcome }}" != "success" ]; then
+          echo "⚠️ One or more steps failed"
+          exit 1
+        else
+          echo "✅ All steps completed successfully"
+        fi_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "You will receive email notifications via your existing Yahoo mail setup." >> $GITHUB_STEP_SUMMARY
