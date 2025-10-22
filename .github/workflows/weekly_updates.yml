@@ -12,22 +12,27 @@ env:
 jobs:
   weekly-updates:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
+
+    - name: Install Playwright browsers
+      run: |
+        playwright install
+        playwright install-deps
+
     - name: Run Pinecone incremental update
       id: pinecone
       env:
@@ -42,7 +47,7 @@ jobs:
         echo "Starting Pinecone incremental update..."
         python incremental_pinecone_ingestion.py 2>&1 | tee pinecone_update.log
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
-    
+
     - name: Run Qdrant incremental update
       id: qdrant
       env:
@@ -57,7 +62,7 @@ jobs:
         echo "Starting Qdrant incremental update..."
         python incremental_update_qdrant.py 2>&1 | tee qdrant_update.log
         echo "qdrant_status=success" >> $GITHUB_OUTPUT
-    
+
     - name: Run Qdrant keep-alive query
       id: keepalive
       env:
@@ -68,7 +73,7 @@ jobs:
         echo "Running Qdrant keep-alive query..."
         python qdrant_keep_alive.py 2>&1 | tee keepalive.log
         echo "keepalive_status=success" >> $GITHUB_OUTPUT
-    
+
     - name: Upload logs
       if: always()
       uses: actions/upload-artifact@v4
@@ -77,7 +82,7 @@ jobs:
         path: |
           *.log
         retention-days: 30
-    
+
     - name: Create summary
       if: always()
       run: |
