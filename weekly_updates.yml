@@ -105,6 +105,4 @@ jobs:
           exit 1
         else
           echo "✅ All steps completed successfully"
-        fi_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "You will receive email notifications via your existing Yahoo mail setup." >> $GITHUB_STEP_SUMMARY
+        fi
