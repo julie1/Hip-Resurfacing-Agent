@@ -98,11 +98,7 @@ jobs:
         echo "Check the uploaded artifacts for detailed logs." >> $GITHUB_STEP_SUMMARY
     
     - name: Check for failures
-      if: always()
+      if: steps.pinecone.outcome != 'success' || steps.qdrant.outcome != 'success' || steps.keepalive.outcome != 'success'
       run: |
-        if [ "${{ steps.pinecone.outcome }}" != "success" ] || [ "${{ steps.qdrant.outcome }}" != "success" ] || [ "${{ steps.keepalive.outcome }}" != "success" ]; then
-          echo "⚠️ One or more steps failed"
-          exit 1
-        else
-          echo "✅ All steps completed successfully"
-        fi
+        echo "One or more steps failed"
+        exit 1
