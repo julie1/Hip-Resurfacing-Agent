@@ -14,6 +14,7 @@ from pydantic_ai.models.openai import OpenAIModel
 from openai import AsyncOpenAI
 from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
+from qdrant_client.models import QueryRequest
 from qdrant_client.http import models
 from pinecone import Pinecone
 from configure_langfuse_v3 import configure_langfuse
@@ -274,9 +275,9 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
                 )
 
                 # Vector search
-                search_results = ctx.deps.qdrant_client.search(
+                search_results = ctx.deps.qdrant_client.query_points(
                     collection_name="site_pages",
-                    query_vector=query_embedding,
+                    query=query_embedding,  # Note: 'query' not 'query_vector'
                     query_filter=models.Filter(
                         must=[
                             models.FieldCondition(
@@ -288,12 +289,12 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
                     limit=5,
                     with_payload=True,
                 )
-                search_span.update(metadata={"match_count": len(search_results)})
+                search_span.update(metadata={"match_count": len(search_results.points)})
+
 
             # 2. Search for recent documents (2024-2025)
             recent_results = []
             years_to_check = ["2025", "2024"]
-
             for year in years_to_check:
                 with ctx.deps.langfuse_client.start_as_current_span(name=f"year_search_{year}") as year_span:
                     year_span.update(
@@ -301,12 +302,11 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
                             "year": year
                         }
                     )
-
                     try:
                         # Get a larger sample for date filtering
-                        year_results = ctx.deps.qdrant_client.search(
+                        year_results = ctx.deps.qdrant_client.query_points(
                             collection_name="site_pages",
-                            query_vector=query_embedding,
+                            query=query_embedding,
                             query_filter=models.Filter(
                                 must=[
                                     models.FieldCondition(
@@ -323,15 +323,13 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
                             limit=10,  # Increased for better coverage
                             with_payload=True,
                         )
-
-                        print(f"Found {len(year_results)} matches for {year}")
+                        print(f"Found {len(year_results.points)} matches for {year}")  # Fixed here
                         year_span.update(
                             metadata={
-                                "matches_found": len(year_results)
+                                "matches_found": len(year_results.points)
                             }
                         )
-                        recent_results.extend(year_results)
-
+                        recent_results.extend(year_results.points)
                     except Exception as e:
                         print(f"Error filtering for {year}: {e}")
                         year_span.update(
@@ -340,12 +338,13 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
                                 "error": str(e)
                             }
                         )
+            
 
         # Combine and deduplicate results
         all_results = {}
 
         # Add standard results
-        for result in search_results:
+        for result in search_results.points:
             if hasattr(result, 'id'):
                 all_results[result.id] = result
 

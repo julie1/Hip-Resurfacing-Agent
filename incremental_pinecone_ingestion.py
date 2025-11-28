@@ -18,58 +18,170 @@ load_dotenv()
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 INDEX_NAME = "forum-pages"
 NAMESPACE = "hip-forum"
-
 # Forum configuration
 BASE_URL = "https://surfacehippy.info/hiptalk"
 
+STATE_FILE = 'pinecone_latest_date.json'
+
+def save_latest_date(date_str):
+    """Save latest date to state file."""
+    with open(STATE_FILE, 'w') as f:
+        json.dump({'latest_date': date_str, 'updated_at': datetime.now().isoformat()}, f, indent=2)
+    print(f"Saved latest date to state file: {date_str}")
+
+def load_latest_date():
+    """Load latest date from state file."""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, 'r') as f:
+                data = json.load(f)
+                latest_date = data.get('latest_date')
+                if latest_date:
+                    print(f"Loaded latest date from state file: {latest_date}")
+                    return latest_date
+        except Exception as e:
+            print(f"Error loading state file: {e}")
+    return None
+
 async def get_latest_date_from_pinecone():
-    """Retrieve the latest date from Pinecone database."""
+    """Retrieve the latest date from Pinecone database using list() for serverless indexes."""
     try:
         index = pc.Index(INDEX_NAME)
         print(f"Connected to index: {INDEX_NAME}")
 
-        results = index.query(
-            namespace=NAMESPACE,
-            vector=[0.0] * 1536,
-            include_metadata=True,
-            top_k=1000
-        )
+        latest_date = None
+        latest_url = None
+        vector_count = 0
 
-        if results and 'matches' in results and results['matches']:
-            latest_date = None
-            latest_url = None
+        # Use list() which automatically paginates through all vectors
+        list_params = {}
+        if NAMESPACE and NAMESPACE.strip():
+            list_params['namespace'] = NAMESPACE
 
-            for point in results['matches']:
-                metadata = point.get('metadata', {})
-                most_recent_date = metadata.get('most_recent_date')
-                started_date = metadata.get('started_date')
-                date_str = most_recent_date or started_date
+        print("Fetching all vector IDs...")
+        all_ids = []
 
-                if not date_str:
-                    continue
+        # Collect all IDs first
+        for id_batch in index.list(**list_params):
+            all_ids.extend(id_batch)
+            if len(all_ids) % 5000 == 0:  # Progress update every 5000
+                print(f"Collected {len(all_ids)} IDs so far...")
 
-                try:
-                    date = parser.parse(date_str)
-                    if latest_date is None or date > latest_date:
-                        latest_date = date
-                        latest_url = metadata.get('url')
-                except Exception as e:
-                    print(f"Error parsing date {date_str}: {e}")
+        print(f"Total vectors found: {len(all_ids)}")
 
-            if latest_date:
-                latest_date_str = latest_date.strftime('%Y-%m-%d')
-                print(f"Latest date in Pinecone: {latest_date_str}")
-                print(f"URL with latest date: {latest_url}")
-                return latest_date_str
-            else:
-                print("No valid dates found in Pinecone.")
-                return None
+        # Use smaller batch size to avoid URI too large error
+        # Reduce from 1000 to 100 to stay well under URL length limits
+        batch_size = 100
+        total_batches = (len(all_ids) + batch_size - 1) // batch_size
+
+        for i in range(0, len(all_ids), batch_size):
+            batch_ids = all_ids[i:i+batch_size]
+            batch_num = i // batch_size + 1
+
+            fetch_params = {'ids': batch_ids}
+            if NAMESPACE and NAMESPACE.strip():
+                fetch_params['namespace'] = NAMESPACE
+
+            if batch_num % 10 == 0 or batch_num == total_batches:  # Progress every 10 batches
+                print(f"Fetching batch {batch_num}/{total_batches} (vectors {i+1} to {min(i+batch_size, len(all_ids))})...")
+
+            try:
+                fetch_result = index.fetch(**fetch_params)
+
+                if fetch_result and hasattr(fetch_result, 'vectors'):
+                    vectors_dict = fetch_result.vectors
+
+                    for vector_id, vector_data in vectors_dict.items():
+                        vector_count += 1
+                        metadata = vector_data.metadata if hasattr(vector_data, 'metadata') else vector_data.get('metadata', {})
+
+                        most_recent_date = metadata.get('most_recent_date')
+                        started_date = metadata.get('started_date')
+
+                        date_str = most_recent_date or started_date
+                        if not date_str:
+                            continue
+
+                        try:
+                            date = parser.parse(date_str)
+                            if latest_date is None or date > latest_date:
+                                latest_date = date
+                                latest_url = metadata.get('url')
+                                print(f"  New latest date found: {latest_date.strftime('%Y-%m-%d')} from {latest_url}")
+                        except Exception as e:
+                            print(f"Error parsing date {date_str}: {e}")
+
+            except Exception as fetch_error:
+                print(f"Error fetching batch {batch_num}: {fetch_error}")
+                # Continue with next batch even if one fails
+                continue
+
+        print(f"\nProcessed {vector_count} vectors total")
+
+        if latest_date:
+            latest_date_str = latest_date.strftime('%Y-%m-%d')
+            print(f"Latest date in Pinecone: {latest_date_str}")
+            print(f"URL with latest date: {latest_url}")
+            return latest_date_str
         else:
-            print("No records found in Pinecone.")
+            print("No valid dates found in Pinecone.")
             return None
+
     except Exception as e:
         print(f"Error getting latest date from Pinecone: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+
+
+# async def get_latest_date_from_pinecone():
+#     """Retrieve the latest date from Pinecone database."""
+#     try:
+#         index = pc.Index(INDEX_NAME)
+#         print(f"Connected to index: {INDEX_NAME}")
+#
+#         results = index.query(
+#             namespace=NAMESPACE,
+#             vector=[0.0] * 1536,
+#             include_metadata=True,
+#             top_k=1000
+#         )
+#
+#         if results and 'matches' in results and results['matches']:
+#             latest_date = None
+#             latest_url = None
+#
+#             for point in results['matches']:
+#                 metadata = point.get('metadata', {})
+#                 most_recent_date = metadata.get('most_recent_date')
+#                 started_date = metadata.get('started_date')
+#                 date_str = most_recent_date or started_date
+#
+#                 if not date_str:
+#                     continue
+#
+#                 try:
+#                     date = parser.parse(date_str)
+#                     if latest_date is None or date > latest_date:
+#                         latest_date = date
+#                         latest_url = metadata.get('url')
+#                 except Exception as e:
+#                     print(f"Error parsing date {date_str}: {e}")
+#
+#             if latest_date:
+#                 latest_date_str = latest_date.strftime('%Y-%m-%d')
+#                 print(f"Latest date in Pinecone: {latest_date_str}")
+#                 print(f"URL with latest date: {latest_url}")
+#                 return latest_date_str
+#             else:
+#                 print("No valid dates found in Pinecone.")
+#                 return None
+#         else:
+#             print("No records found in Pinecone.")
+#             return None
+#     except Exception as e:
+#         print(f"Error getting latest date from Pinecone: {e}")
+#         return None
 
 def parse_date_string(date_str: str) -> str:
     """Parse different date formats and return YYYY-MM-DD."""
@@ -406,10 +518,26 @@ async def crawl_new_content(latest_date_in_pinecone):
     return new_topics
 
 async def main():
-    latest_date = await get_latest_date_from_pinecone() #"2025-07-14" #
+     # First, try to load from state file
+    latest_date = load_latest_date()
 
+    # If no state file exists, scan Pinecone (this is slow)
     if not latest_date:
-        print("No latest date found in Pinecone. Running full crawl.\n")
+        print("No state file found. Scanning Pinecone for latest date...")
+        latest_date = await get_latest_date_from_pinecone()
+
+        # Save it for next time
+        if latest_date:
+            save_latest_date(latest_date)
+
+    # Now do your incremental crawl from latest_date
+    if latest_date:
+        print(f"Running incremental update from {latest_date}")
+        # new_data = await crawl_new_content(since_date=latest_date)
+    # latest_date = await get_latest_date_from_pinecone() #"2025-07-14" #
+    #
+    # if not latest_date:
+    #     print("No latest date found in Pinecone. Running full crawl.\n")
 
     start_time = time.time()
     new_topics = await crawl_new_content(latest_date)
