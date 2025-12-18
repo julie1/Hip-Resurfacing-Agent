@@ -33,13 +33,11 @@ jobs:
         playwright install
         playwright install-deps
 
-    - name: Restore Pinecone state cache
-      uses: actions/cache/restore@v3
+    - name: Cache Pinecone state
+      uses: actions/cache@v3
       with:
         path: pinecone_latest_date.json
-        key: pinecone-state-${{ github.sha }}
-        restore-keys: |
-          pinecone-state-
+        key: pinecone-state-latest
 
     - name: Check cached state
       run: |
@@ -66,24 +64,17 @@ jobs:
         python incremental_pinecone_ingestion.py 2>&1 | tee pinecone_update.log
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
 
-    - name: Save Pinecone state cache
-      uses: actions/cache/save@v3
-      if: steps.pinecone.outputs.pinecone_status == 'success'
-      with:
-        path: pinecone_latest_date.json
-        key: pinecone-state-${{ github.sha }}
-
     - name: Verify saved state
       if: steps.pinecone.outputs.pinecone_status == 'success'
       run: |
         if [ -f pinecone_latest_date.json ]; then
-          echo "✓ State file saved successfully"
-          echo "New cached content:"
+          echo "✓ State file exists"
+          echo "Content:"
           cat pinecone_latest_date.json
         else
           echo "⚠ Warning: State file was not created"
         fi
-
+        
     - name: Run Qdrant incremental update
       id: qdrant
       env:
