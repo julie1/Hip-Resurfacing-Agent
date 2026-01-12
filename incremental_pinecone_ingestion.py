@@ -43,6 +43,49 @@ def load_latest_date():
             print(f"Error loading state file: {e}")
     return None
 
+
+
+def extract_and_save_latest_date(topics):
+    """
+    Extract the newest date from topics list and save to state file.
+    Call this AFTER successful ingestion.
+
+    Args:
+        topics: List of topic dicts from new_topics
+    """
+    if not topics:
+        print("No topics to extract date from")
+        return
+
+    newest_date = None
+    newest_url = None
+
+    for topic in topics:
+        # Use most_recent_date if available, otherwise started_date
+        date_str = topic.get('most_recent_date') or topic.get('started_date')
+
+        if not date_str:
+            continue
+
+        try:
+            date = parser.parse(date_str)
+            if newest_date is None or date > newest_date:
+                newest_date = date
+                newest_url = topic.get('url')
+        except Exception as e:
+            print(f"Warning: Error parsing date '{date_str}': {e}")
+
+    if newest_date:
+        newest_str = newest_date.strftime('%Y-%m-%d')
+        print(f"\n{'='*70}")
+        print(f"📅 Updating state file with newest date from this batch:")
+        print(f"   Date: {newest_str}")
+        print(f"   URL:  {newest_url}")
+        print(f"{'='*70}")
+        save_latest_date(newest_str)
+    else:
+        print("⚠️  No valid dates found in topics")
+
 async def get_latest_date_from_pinecone():
     """Retrieve the latest date from Pinecone database using list() for serverless indexes."""
     try:
@@ -134,54 +177,7 @@ async def get_latest_date_from_pinecone():
         return None
 
 
-# async def get_latest_date_from_pinecone():
-#     """Retrieve the latest date from Pinecone database."""
-#     try:
-#         index = pc.Index(INDEX_NAME)
-#         print(f"Connected to index: {INDEX_NAME}")
-#
-#         results = index.query(
-#             namespace=NAMESPACE,
-#             vector=[0.0] * 1536,
-#             include_metadata=True,
-#             top_k=1000
-#         )
-#
-#         if results and 'matches' in results and results['matches']:
-#             latest_date = None
-#             latest_url = None
-#
-#             for point in results['matches']:
-#                 metadata = point.get('metadata', {})
-#                 most_recent_date = metadata.get('most_recent_date')
-#                 started_date = metadata.get('started_date')
-#                 date_str = most_recent_date or started_date
-#
-#                 if not date_str:
-#                     continue
-#
-#                 try:
-#                     date = parser.parse(date_str)
-#                     if latest_date is None or date > latest_date:
-#                         latest_date = date
-#                         latest_url = metadata.get('url')
-#                 except Exception as e:
-#                     print(f"Error parsing date {date_str}: {e}")
-#
-#             if latest_date:
-#                 latest_date_str = latest_date.strftime('%Y-%m-%d')
-#                 print(f"Latest date in Pinecone: {latest_date_str}")
-#                 print(f"URL with latest date: {latest_url}")
-#                 return latest_date_str
-#             else:
-#                 print("No valid dates found in Pinecone.")
-#                 return None
-#         else:
-#             print("No records found in Pinecone.")
-#             return None
-#     except Exception as e:
-#         print(f"Error getting latest date from Pinecone: {e}")
-#         return None
+
 
 def parse_date_string(date_str: str) -> str:
     """Parse different date formats and return YYYY-MM-DD."""
@@ -575,6 +571,7 @@ async def main():
             await crawl_parallel(new_topics, openai_client)
 
             print("\nIngestion completed!")
+            extract_and_save_latest_date(new_topics)
         except ImportError:
             print(f"\nRun ingestion manually:")
             print(f"python updated_pinecone_ingestion.py --input {output_file}")
