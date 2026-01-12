@@ -42,7 +42,7 @@ jobs:
         restore-keys: |
           pinecone-state-
 
-    - name: Check cached state
+    - name: Check cached Pinecone state
       run: |
         if [ -f pinecone_latest_date.json ]; then
           echo "✓ Pinecone state cache found"
@@ -50,6 +50,25 @@ jobs:
           cat pinecone_latest_date.json
         else
           echo "✗ No Pinecone state cache found - will perform full scan"
+        fi
+
+    - name: Restore Qdrant state cache
+      id: cache-qdrant
+      uses: actions/cache/restore@v3
+      with:
+        path: qdrant_latest_date.json
+        key: qdrant-state-${{ github.run_number }}
+        restore-keys: |
+          qdrant-state-
+
+    - name: Check cached Qdrant state
+      run: |
+        if [ -f qdrant_latest_date.json ]; then
+          echo "✓ Qdrant state cache found"
+          echo "Cached content:"
+          cat qdrant_latest_date.json
+        else
+          echo "✗ No Qdrant state cache found - will perform full scan"
         fi
 
     - name: Run Pinecone incremental update
@@ -74,15 +93,15 @@ jobs:
         path: pinecone_latest_date.json
         key: pinecone-state-${{ github.run_number }}
 
-    - name: Verify saved state
+    - name: Verify saved Pinecone state
       if: steps.pinecone.outputs.pinecone_status == 'success'
       run: |
         if [ -f pinecone_latest_date.json ]; then
-          echo "✓ State file saved successfully"
+          echo "✓ Pinecone state file saved successfully"
           echo "New cached content:"
           cat pinecone_latest_date.json
         else
-          echo "⚠ Warning: State file was not created"
+          echo "⚠ Warning: Pinecone state file was not created"
         fi
 
     - name: Run Qdrant incremental update
@@ -99,6 +118,24 @@ jobs:
         echo "Starting Qdrant incremental update..."
         python incremental_update_qdrant.py 2>&1 | tee qdrant_update.log
         echo "qdrant_status=success" >> $GITHUB_OUTPUT
+
+    - name: Save Qdrant state cache
+      uses: actions/cache/save@v3
+      if: steps.qdrant.outputs.qdrant_status == 'success'
+      with:
+        path: qdrant_latest_date.json
+        key: qdrant-state-${{ github.run_number }}
+
+    - name: Verify saved Qdrant state
+      if: steps.qdrant.outputs.qdrant_status == 'success'
+      run: |
+        if [ -f qdrant_latest_date.json ]; then
+          echo "✓ Qdrant state file saved successfully"
+          echo "New cached content:"
+          cat qdrant_latest_date.json
+        else
+          echo "⚠ Warning: Qdrant state file was not created"
+        fi
 
     - name: Run Qdrant keep-alive query
       id: keepalive
