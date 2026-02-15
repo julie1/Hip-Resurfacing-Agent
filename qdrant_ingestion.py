@@ -303,7 +303,7 @@ async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
             result = await crawler.arun(url=url, config=crawl_config, session_id="session1")
 
             if result.success:
-                content = result.markdown_v2.raw_markdown
+                content = result.markdown.raw_markdown
                 chunks = chunk_text(content)
 
                 if chunks:
