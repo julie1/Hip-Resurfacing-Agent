@@ -294,7 +294,9 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
 
             # 2. Search for recent documents (2024-2025)
             recent_results = []
-            years_to_check = ["2025", "2024"]
+            current_year = datetime.now().year
+            years_to_check = [str(current_year), str(current_year - 1)]
+            #years_to_check = ["2025", "2024"]
             for year in years_to_check:
                 with ctx.deps.langfuse_client.start_as_current_span(name=f"year_search_{year}") as year_span:
                     year_span.update(
@@ -338,7 +340,7 @@ async def retrieve_from_qdrant(ctx: RunContext[CombinedDeps], user_query: str) -
                                 "error": str(e)
                             }
                         )
-            
+
 
         # Combine and deduplicate results
         all_results = {}
@@ -527,7 +529,9 @@ async def retrieve_from_pinecone(ctx: RunContext[CombinedDeps], user_query: str)
 
             # 2. Search for recent documents (2024-2025)
             recent_results = []
-            years_to_check = ["2025", "2024"]
+            current_year = datetime.now().year
+            years_to_check = [str(current_year), str(current_year - 1)]
+            #years_to_check = ["2025", "2024"]
             for year in years_to_check:
                 with ctx.deps.langfuse_client.start_as_current_span(name=f"year_search_{year}") as year_span:
                     year_span.update(
@@ -543,8 +547,7 @@ async def retrieve_from_pinecone(ctx: RunContext[CombinedDeps], user_query: str)
                             include_metadata=True
                         )
 
-                        # Filter by year in Python
-                        from datetime import datetime
+                        
 
                         # Filter by year in Python - most reliable
 
