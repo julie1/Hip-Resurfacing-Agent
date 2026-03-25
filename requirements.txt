@@ -16,6 +16,6 @@ pydantic_ai==1.23.0
 python-dotenv==1.2.1
 python_dateutil==2.9.0.post0
 qdrant_client==1.17.1
-streamlit==1.55.2
+streamlit==1.52.2
 streamlit_js_eval==0.1.7
 tiktoken==0.12.0
