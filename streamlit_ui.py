@@ -39,7 +39,7 @@ from langfuse_dashboard_v4 import LangfuseDashboard, FeedbackCollector
 from langfuse import propagate_attributes
 
 # Import the combined agent
-from combine_agents_langfuse_v4 import hip_rag_agent, CombinedDeps
+from combine_agents_langfuse import hip_rag_agent, CombinedDeps
 
 # Load environment variables
 from dotenv import load_dotenv
