@@ -15,10 +15,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ env.PYTHON_VERSION }}
         cache: 'pip'
@@ -35,7 +35,7 @@ jobs:
 
     - name: Restore Pinecone state cache
       id: cache-pinecone
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v5
       with:
         path: pinecone_latest_date.json
         key: pinecone-state-${{ github.run_number }}
@@ -54,7 +54,7 @@ jobs:
 
     - name: Restore Qdrant state cache
       id: cache-qdrant
-      uses: actions/cache/restore@v3
+      uses: actions/cache/restore@v5
       with:
         path: qdrant_latest_date.json
         key: qdrant-state-${{ github.run_number }}
@@ -87,7 +87,7 @@ jobs:
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
 
     - name: Save Pinecone state cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v5
       if: steps.pinecone.outputs.pinecone_status == 'success'
       with:
         path: pinecone_latest_date.json
@@ -120,7 +120,7 @@ jobs:
         echo "qdrant_status=success" >> $GITHUB_OUTPUT
 
     - name: Save Qdrant state cache
-      uses: actions/cache/save@v3
+      uses: actions/cache/save@v5
       if: steps.qdrant.outputs.qdrant_status == 'success'
       with:
         path: qdrant_latest_date.json
@@ -150,7 +150,7 @@ jobs:
 
     - name: Upload logs
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: update-logs-${{ github.run_number }}
         path: |
