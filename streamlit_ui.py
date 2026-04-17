@@ -766,7 +766,7 @@ async def _run_post_response_evaluation_as_tool(trace, agent_span, deps, user_qu
 async def main():
     st.title("Hip Resurfacing Search Engine")
     st.write("""Select Surface Hippy Forum to ask any question to retrieve information from the archived posts of members of the hip resurfacing support group
-    https://surfacehippy.info/hiptalk/.   Select Hip Resurfacing Forum to retrieve information from https://groups.io/g/Hipresurfacingsite archived posts.
+    https://surfacehippy.net/hiptalk/.   Select Hip Resurfacing Forum to retrieve information from https://groups.io/g/Hipresurfacingsite archived posts.
     Select Both Sources to query both archives at the same time.   Please join the groups to post new messages.""")
 
     with st.sidebar:
