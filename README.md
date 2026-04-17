@@ -1,6 +1,6 @@
 # Hip-Resurfacing-Agent
 
-This repository is a rag (retrieval augmented generation) streamlit application for posts of the groups https://surfacehippy.info/hiptalk/ and https://groups.io/g/Hipresurfacingsite.  To use the app please go to https://hipresurfacingagent.streamlit.app/ and ask a question. Note that the code here can easily be adapted to create a rag search engine for any on-line forum.
+This repository is a rag (retrieval augmented generation) streamlit application for posts of the groups https://surfacehippy.net/hiptalk/ and https://groups.io/g/Hipresurfacingsite.  To use the app please go to https://hipresurfacingagent.streamlit.app/ and ask a question. Note that the code here can easily be adapted to create a rag search engine for any on-line forum.
 
 ## Overview
 
