@@ -665,7 +665,7 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
     new_topics = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.firefox.launch(headless=True)
         page = await browser.new_page()
         stealth = Stealth()
         await stealth.apply_stealth_async(page)        
