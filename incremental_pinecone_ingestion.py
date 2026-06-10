@@ -669,7 +669,7 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
 
         print(f"Fetching main forum page: {BASE_URL}")
         await page.goto(BASE_URL, timeout=30000)
-        await page.wait_for_load_state('networkidle', timeout=30000)
+        #await page.wait_for_load_state('networkidle', timeout=30000)
         html = await page.content()
 
         if debug:
@@ -694,6 +694,7 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
                 print(f"         <{tag.name} class={tag.get('class')}> : {snippet}")
             print()
 
+        await page.wait_for_load_state('networkidle', timeout=30000)
         recent_boards = await extract_board_info(html, BASE_URL, latest_date_obj)
 
         print(f"Processing {len(recent_boards)} boards with recent activity\n")
