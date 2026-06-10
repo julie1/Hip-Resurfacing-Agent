@@ -21,8 +21,6 @@ jobs:
         run: playwright install chromium
       
       - name: Run debug
-        env:
-          # add whatever secrets/env vars the script needs
         run: python incremental_pinecone_ingestion.py --debug 2>&1 | tee pinecone_update.log
       
       - name: Upload debug HTML
