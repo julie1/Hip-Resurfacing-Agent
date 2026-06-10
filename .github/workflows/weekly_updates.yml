@@ -86,6 +86,13 @@ jobs:
         python incremental_pinecone_ingestion.py 2>&1 | tee pinecone_update.log
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
 
+    - name: Upload debug HTML
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-html
+        path: debug_forum_index.html
+
     - name: Save Pinecone state cache
       uses: actions/cache/save@v5
       if: steps.pinecone.outputs.pinecone_status == 'success'
