@@ -9,7 +9,7 @@ from dateutil import parser
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 from bs4 import BeautifulSoup
 
 # Load environment variables
@@ -667,7 +667,8 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
-        await stealth_async(page)
+        stealth = Stealth()
+        await stealth.apply_stealth_async(page)        
         print(f"Fetching main forum page: {BASE_URL}")
         await page.goto(BASE_URL, timeout=30000)
         #await page.wait_for_load_state('networkidle', timeout=30000)
