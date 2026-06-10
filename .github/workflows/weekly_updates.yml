@@ -83,7 +83,7 @@ jobs:
         LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
       run: |
         echo "Starting Pinecone incremental update..."
-        python incremental_pinecone_ingestion.py 2>&1 | tee pinecone_update.log
+        python incremental_pinecone_ingestion.py --debug 2>&1 | tee pinecone_update.log
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
 
     - name: Upload debug HTML
