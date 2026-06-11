@@ -631,7 +631,7 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
             html = await page.content()
             if debug:
                 with open('debug_board.html', 'w', encoding='utf-8') as f:
-            f.write(html)
+                    f.write(html)
             print(f"[DEBUG] Board HTML saved ({len(html):,} chars)")
             page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
 
