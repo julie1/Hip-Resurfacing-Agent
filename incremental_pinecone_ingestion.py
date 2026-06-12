@@ -613,6 +613,7 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
     """Process a single board to find new topics."""
     try:
         print(f"Processing board: {board['name']}")
+        print(f"[DEBUG] Board URL: {board['url']}")
         # add delay
         await asyncio.sleep(5)
         await page.goto(board['url'], timeout=30000)
