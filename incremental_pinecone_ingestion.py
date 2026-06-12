@@ -19,7 +19,7 @@ pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 INDEX_NAME = "forum-pages"
 NAMESPACE = "hip-forum"
 # Forum configuration  (moved to .net after hack)
-BASE_URL = "https://surfacehippy.net/hiptalk"
+BASE_URL = "https://surfacehippy.info/hiptalk"
 
 STATE_FILE = 'pinecone_latest_date.json'
 
@@ -338,8 +338,8 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
                 continue
 
             if not board_url.startswith('http'):
-              #  board_url = base_url + '/' + board_url.lstrip('/')
-                board_url = board_link.get('href', '').replace('surfacehippy.info', 'surfacehippy.net')
+                board_url = base_url + '/' + board_url.lstrip('/')
+              #  board_url = board_link.get('href', '').replace('surfacehippy.info', 'surfacehippy.net')
             
             last_post_date = None
 
