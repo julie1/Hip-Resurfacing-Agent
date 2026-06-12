@@ -671,47 +671,94 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
     new_topics = []
 
     async with async_playwright() as p:
-        browser = await p.firefox.launch(headless=True)
-        page = await browser.new_page()  
-        print(f"Fetching main forum page: {BASE_URL}")
-        await page.goto(BASE_URL, timeout=30000)
-        #await page.wait_for_load_state('networkidle', timeout=30000)
-        html = await page.content()
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox"
+            ]
+        )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US",
+        )
+        page = await context.new_page()
 
+        # Simulate human behavior before navigating
+        await page.mouse.move(100, 200)
+        await page.mouse.move(300, 400)
+        await asyncio.sleep(2)
+
+        print(f"Fetching main forum page: {BASE_URL}")
+        await page.goto(BASE_URL, timeout=60000)
+        
+        # Save debug HTML before waiting for networkidle
+        html = await page.content()
         if debug:
             debug_file = 'debug_forum_index.html'
             with open(debug_file, 'w', encoding='utf-8') as f:
                 f.write(html)
             print(f"\n[DEBUG] Raw HTML saved to: {debug_file}  ({len(html):,} chars)")
             _soup = BeautifulSoup(html, 'html.parser')
-            # Show all unique <a> class values — tells us what board-link class to use
             a_classes = sorted(set(
                 ' '.join(a['class']) for a in _soup.find_all('a') if a.get('class')
             ))
             print(f"[DEBUG] Unique <a> class values ({len(a_classes)} total):")
             for c in a_classes[:40]:
                 print(f"         {c}")
-            # Show elements that contain "Last post" text
             lp_tags = [tag for tag in _soup.find_all(True)
                        if 'last post' in tag.get_text().lower() and tag.name in ('p','div','td','li','span')]
-            print(f"\n[DEBUG] Tags containing 'Last post' text ({len(lp_tags)} found):")
-            for tag in lp_tags[:10]:
-                snippet = ' '.join(tag.get_text().split())[:120]
-                print(f"         <{tag.name} class={tag.get('class')}> : {snippet}")
-            print()
+            print(f"\n[DEBUG] Tags containing
+# async def crawl_new_content(latest_date_in_pinecone, debug=False):
+#     """Crawl forum boards and topics newer than the latest date in Pinecone."""
+#     latest_date_obj = parser.parse(latest_date_in_pinecone) if latest_date_in_pinecone else None
+#     new_topics = []
 
-        await page.wait_for_load_state('networkidle', timeout=30000)
-        recent_boards = await extract_board_info(html, BASE_URL, latest_date_obj)
+#     async with async_playwright() as p:
+#         browser = await p.firefox.launch(headless=True)
+#         page = await browser.new_page()  
+#         print(f"Fetching main forum page: {BASE_URL}")
+#         await page.goto(BASE_URL, timeout=30000)
+#         #await page.wait_for_load_state('networkidle', timeout=30000)
+#         html = await page.content()
 
-        print(f"Processing {len(recent_boards)} boards with recent activity\n")
+#         if debug:
+#             debug_file = 'debug_forum_index.html'
+#             with open(debug_file, 'w', encoding='utf-8') as f:
+#                 f.write(html)
+#             print(f"\n[DEBUG] Raw HTML saved to: {debug_file}  ({len(html):,} chars)")
+#             _soup = BeautifulSoup(html, 'html.parser')
+#             # Show all unique <a> class values — tells us what board-link class to use
+#             a_classes = sorted(set(
+#                 ' '.join(a['class']) for a in _soup.find_all('a') if a.get('class')
+#             ))
+#             print(f"[DEBUG] Unique <a> class values ({len(a_classes)} total):")
+#             for c in a_classes[:40]:
+#                 print(f"         {c}")
+#             # Show elements that contain "Last post" text
+#             lp_tags = [tag for tag in _soup.find_all(True)
+#                        if 'last post' in tag.get_text().lower() and tag.name in ('p','div','td','li','span')]
+#             print(f"\n[DEBUG] Tags containing 'Last post' text ({len(lp_tags)} found):")
+#             for tag in lp_tags[:10]:
+#                 snippet = ' '.join(tag.get_text().split())[:120]
+#                 print(f"         <{tag.name} class={tag.get('class')}> : {snippet}")
+#             print()
 
-        for board in recent_boards:
-            await process_board(page, board, latest_date_obj, new_topics, debug=debug)
-            print()
+#         await page.wait_for_load_state('networkidle', timeout=30000)
+#         recent_boards = await extract_board_info(html, BASE_URL, latest_date_obj)
 
-        await browser.close()
+#         print(f"Processing {len(recent_boards)} boards with recent activity\n")
 
-    return new_topics
+#         for board in recent_boards:
+#             await process_board(page, board, latest_date_obj, new_topics, debug=debug)
+#             print()
+
+#         await browser.close()
+
+#     return new_topics
 
 async def main():
     # Support --debug flag to dump raw HTML for selector diagnosis
