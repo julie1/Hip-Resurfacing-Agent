@@ -694,7 +694,11 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
         await page.mouse.move(800, 400)
         await page.mouse.move(600, 300)
         await asyncio.sleep(5)
-        await page.goto(board['url'], timeout=60000)
+        # In process_board, update the page.goto call:
+        await page.goto(board['url'], timeout=60000, referer=BASE_URL)
+        await asyncio.sleep(random.uniform(3.5, 6.0))
+        await page.wait_for_load_state('domcontentloaded')
+
         try:
             await page.wait_for_selector('a.subject', timeout=15000)
         except:
@@ -807,25 +811,37 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
     new_topics = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
+        browser = await p.firefox.launch(
             headless=True,
             args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-gpu",
                 "--disable-dev-shm-usage",
                 "--no-sandbox"
             ]
         )
+
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+            viewport={"width": 1440, "height": 900},
             locale="en-US",
+            timezone_id="America/New_York",
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Dest": "document"
+            }
         )
         page = await context.new_page()
+        # Override browser test flags natively inside the DOM
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            window.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        """)
               
-        # PASTE THIS LINE DIRECTLY UNDER NEW_PAGE():
-        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
-
+       
 
         # Simulate human behavior before navigating
         await page.mouse.move(100, 200)
