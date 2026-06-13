@@ -621,10 +621,15 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
         await page.mouse.move(500, 200)
         await asyncio.sleep(3)
 
+        await page.mouse.move(800, 400)
+        await page.mouse.move(600, 300)
+        await asyncio.sleep(5)
         await page.goto(board['url'], timeout=60000)
-        await page.wait_for_load_state('load', timeout=60000)
+        try:
+            await page.wait_for_selector('a.subject', timeout=15000)
+        except:
+            await asyncio.sleep(5)
         html = await page.content()
-
         if debug:
             with open('debug_board.html', 'w', encoding='utf-8') as f:
                 f.write(html)
