@@ -822,6 +822,10 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
             locale="en-US",
         )
         page = await context.new_page()
+              
+        # PASTE THIS LINE DIRECTLY UNDER NEW_PAGE():
+        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+
 
         # Simulate human behavior before navigating
         await page.mouse.move(100, 200)
