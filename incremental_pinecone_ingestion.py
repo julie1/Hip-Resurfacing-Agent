@@ -396,155 +396,225 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
     return recent_boards
 
 async def extract_topic_info(html: str, base_url: str, debug: bool = False):
-    """Extract topic URLs, subjects, and dates from a board page.
-
-    Handles both old SMF URL style (topic,NNN) and new style (?topic=NNN),
-    and extracts last-post dates from bare text nodes (not just date links).
-    """
+    """Robust topic extractor that handles template shifts and URL pattern updates."""
     topics = []
-
     try:
         soup = BeautifulSoup(html, 'html.parser')
+        # Matches old SMF, new SMF, and SEO-friendly slug subpaths
+        topic_link_pattern = re.compile(r'(topic[,=]\d+|\/topic\/\d+)', re.IGNORECASE)
+        
+        all_links = soup.find_all('a')
+        matched_links = [a for a in all_links if a.get('href') and topic_link_pattern.search(a['href'])]
+        
+        if len(matched_links) == 0:
+            print("\n🚨 [DIAGNOSTIC] No topics found. Checking for severe layout blocks...")
+            page_title = soup.title.string.strip() if soup.title else "No Title Tag"
+            print(f"  -> Server Document Title: '{page_title}'")
+            print(f"  -> HTML Length: {len(html)} characters")
+            body_text = ' '.join(soup.get_text().split())[:300]
+            print(f"  -> Page Context Text: {body_text}\n")
+            return topics
 
-        # Support both URL styles: topic,NNN and topic=NNN
-        topic_link_pattern = re.compile(r'topic[,=](\d+)', re.IGNORECASE)
-
-        # --- DEBUG: show structure ---
-        if debug:
-            row_classes = sorted(set(
-                ' '.join(t.get('class', [])) for t in soup.find_all(['tr', 'td', 'div', 'li'])
-                if any(k in ' '.join(t.get('class', [])).lower()
-                       for k in ['topic', 'subject', 'lastpost', 'post', 'recent', 'message'])
-            ))
-            print(f"  [DEBUG] Topic-related element classes: {row_classes[:30]}")
-            sample_links = soup.find_all('a', href=topic_link_pattern)[:5]
-            print(f"  [DEBUG] Sample topic links ({len(soup.find_all('a', href=topic_link_pattern))} total):")
-            for a in sample_links:
-                print(f"           href={a.get('href','')!r}  text={a.get_text(strip=True)!r}")
-
-        # --- Find per-topic container elements ---
         topic_containers = {}
-
-        for a in soup.find_all('a', href=topic_link_pattern):
+        for a in matched_links:
             href = a.get('href', '')
-            m = topic_link_pattern.search(href)
-            if not m:
-                continue
-            topic_id = m.group(1)
-
-            # Walk up to find the row/block containing this topic
+            id_match = re.search(r'topic[,=](\d+)', href)
+            topic_id = id_match.group(1) if id_match else href.split('/')[-1]
+            
             container = a
             for _ in range(6):
                 parent = container.parent
-                if parent is None:
-                    break
-                if parent.name in ('tr', 'li', 'article'):
+                if parent is None: break
+                if parent.name in ('tr', 'li', 'article', 'div'):
                     container = parent
                     break
-                if parent.name in ('div', 'td'):
-                    sibling_ids = set(
-                        topic_link_pattern.search(x.get('href', '')).group(1)
-                        for x in parent.find_all('a', href=topic_link_pattern)
-                        if topic_link_pattern.search(x.get('href', ''))
-                    )
-                    if len(sibling_ids) <= 2:
-                        container = parent
-                    else:
-                        break
-                else:
-                    container = parent
-
-            if topic_id not in topic_containers:
-                topic_containers[topic_id] = container
-
-        if debug:
-            print(f"  [DEBUG] Found {len(topic_containers)} topic containers")
-            for tid, c in list(topic_containers.items())[:3]:
-                snippet = ' '.join(c.get_text().split())[:200]
-                print(f"  [DEBUG] topic {tid} container <{c.name} class={c.get('class')}> : {snippet}")
-
-        # --- Extract subject + date from each container ---
-        topics_dict = {}
+            topic_containers[topic_id] = container
 
         for topic_id, container in topic_containers.items():
-            # Subject: longest non-navigation link text
             subject = None
-            for a in container.find_all('a', href=topic_link_pattern):
-                text = a.get_text(strip=True)
-                if text.lower() in ('last', 'first', 'next', 'prev', '«', '»', ''):
+            topic_url = None
+            for a in container.find_all('a'):
+                href = a.get('href', '')
+                if not href or any(x in href.lower() for x in ['profile', 'action=', 'last', 'new', 'gopost']):
                     continue
-                if text.isdigit() or 'pages' in text.lower():
+                text = a.get_text(strip=True)
+                if text.lower() in ('last', 'first', 'next', 'prev', '«', '»', '', 'new') or text.isdigit():
                     continue
                 if subject is None or len(text) > len(subject):
                     subject = text
-
-            if not subject:
-                continue
-
-            topic_url = f"{base_url}/index.php?topic={topic_id}.0"
-
-            # Last-post date: try multiple strategies
+                    topic_url = href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+            
+            if not subject: continue
+            
+            # Simple fallback date picker
             last_post_date = None
-
-            # Strategy 1: lastpost cell
-            lastpost_cell = container.find(
-                ['td', 'div', 'span', 'p'],
-                class_=re.compile(r'lastpost|last_post|recent', re.I)
-            )
-            if lastpost_cell:
-                cell_text = lastpost_cell.get_text(separator=' ', strip=True)
-                cell_text = re.split(r'\s+by\s+', cell_text, flags=re.IGNORECASE)[0]
-                last_post_date = parse_date_string(cell_text)
-
-            # Strategy 2: link with #msg or msg= in href
-            if not last_post_date:
-                for a in container.find_all('a', href=re.compile(r'(#msg|msg=|\bmsg\b)', re.I)):
-                    last_post_date = parse_date_string(a.get_text(strip=True))
-                    if last_post_date:
-                        break
-
-            # Strategy 3: link with #new in href (new SMF style)
-            if not last_post_date:
-                for a in container.find_all('a', href=re.compile(r'#new', re.I)):
-                    last_post_date = parse_date_string(a.get_text(strip=True))
-                    if last_post_date:
-                        break
-
-            # Strategy 4: scan all text nodes for a parseable date
-            if not last_post_date:
-                for text_node in container.strings:
-                    text = text_node.strip()
-                    if len(text) < 6:
-                        continue
-                    if not re.search(r'\d', text):
-                        continue
-                    if not re.search(r'([A-Za-z]{3,9}|\d{1,2}[/-]\d{1,2})', text):
-                        continue
+            for text_node in container.strings:
+                text = text_node.strip()
+                if len(text) >= 6 and re.search(r'\d', text):
                     last_post_date = parse_date_string(text)
-                    if last_post_date:
-                        break
-
-            topics_dict[topic_id] = {
+                    if last_post_date: break
+                    
+            topics.append({
                 'url': topic_url,
                 'subject': subject,
                 'most_recent_date': last_post_date,
                 'started_date': None
-            }
-
-        topics = [t for t in topics_dict.values() if t['subject']]
-        print(f"  Extracted {len(topics)} topics")
-
-        if debug and topics:
-            print(f"  [DEBUG] Sample topics:")
-            for t in topics[:5]:
-                print(f"           {t['subject'][:60]!r}  date={t['most_recent_date']}")
-
+            })
+        print(f"  Successfully extracted {len(topics)} topics")
     except Exception as e:
-        print(f"Error extracting topic information: {e}")
-        import traceback
-        traceback.print_exc()
-
+        print(f"Extraction Error: {e}")
     return topics
+
+# async def extract_topic_info(html: str, base_url: str, debug: bool = False):
+#     """Extract topic URLs, subjects, and dates from a board page.
+
+#     Handles both old SMF URL style (topic,NNN) and new style (?topic=NNN),
+#     and extracts last-post dates from bare text nodes (not just date links).
+#     """
+#     topics = []
+
+#     try:
+#         soup = BeautifulSoup(html, 'html.parser')
+
+#         # Support both URL styles: topic,NNN and topic=NNN
+#         topic_link_pattern = re.compile(r'topic[,=](\d+)', re.IGNORECASE)
+
+#         # --- DEBUG: show structure ---
+#         if debug:
+#             row_classes = sorted(set(
+#                 ' '.join(t.get('class', [])) for t in soup.find_all(['tr', 'td', 'div', 'li'])
+#                 if any(k in ' '.join(t.get('class', [])).lower()
+#                        for k in ['topic', 'subject', 'lastpost', 'post', 'recent', 'message'])
+#             ))
+#             print(f"  [DEBUG] Topic-related element classes: {row_classes[:30]}")
+#             sample_links = soup.find_all('a', href=topic_link_pattern)[:5]
+#             print(f"  [DEBUG] Sample topic links ({len(soup.find_all('a', href=topic_link_pattern))} total):")
+#             for a in sample_links:
+#                 print(f"           href={a.get('href','')!r}  text={a.get_text(strip=True)!r}")
+
+#         # --- Find per-topic container elements ---
+#         topic_containers = {}
+
+#         for a in soup.find_all('a', href=topic_link_pattern):
+#             href = a.get('href', '')
+#             m = topic_link_pattern.search(href)
+#             if not m:
+#                 continue
+#             topic_id = m.group(1)
+
+#             # Walk up to find the row/block containing this topic
+#             container = a
+#             for _ in range(6):
+#                 parent = container.parent
+#                 if parent is None:
+#                     break
+#                 if parent.name in ('tr', 'li', 'article'):
+#                     container = parent
+#                     break
+#                 if parent.name in ('div', 'td'):
+#                     sibling_ids = set(
+#                         topic_link_pattern.search(x.get('href', '')).group(1)
+#                         for x in parent.find_all('a', href=topic_link_pattern)
+#                         if topic_link_pattern.search(x.get('href', ''))
+#                     )
+#                     if len(sibling_ids) <= 2:
+#                         container = parent
+#                     else:
+#                         break
+#                 else:
+#                     container = parent
+
+#             if topic_id not in topic_containers:
+#                 topic_containers[topic_id] = container
+
+#         if debug:
+#             print(f"  [DEBUG] Found {len(topic_containers)} topic containers")
+#             for tid, c in list(topic_containers.items())[:3]:
+#                 snippet = ' '.join(c.get_text().split())[:200]
+#                 print(f"  [DEBUG] topic {tid} container <{c.name} class={c.get('class')}> : {snippet}")
+
+#         # --- Extract subject + date from each container ---
+#         topics_dict = {}
+
+#         for topic_id, container in topic_containers.items():
+#             # Subject: longest non-navigation link text
+#             subject = None
+#             for a in container.find_all('a', href=topic_link_pattern):
+#                 text = a.get_text(strip=True)
+#                 if text.lower() in ('last', 'first', 'next', 'prev', '«', '»', ''):
+#                     continue
+#                 if text.isdigit() or 'pages' in text.lower():
+#                     continue
+#                 if subject is None or len(text) > len(subject):
+#                     subject = text
+
+#             if not subject:
+#                 continue
+
+#             topic_url = f"{base_url}/index.php?topic={topic_id}.0"
+
+#             # Last-post date: try multiple strategies
+#             last_post_date = None
+
+#             # Strategy 1: lastpost cell
+#             lastpost_cell = container.find(
+#                 ['td', 'div', 'span', 'p'],
+#                 class_=re.compile(r'lastpost|last_post|recent', re.I)
+#             )
+#             if lastpost_cell:
+#                 cell_text = lastpost_cell.get_text(separator=' ', strip=True)
+#                 cell_text = re.split(r'\s+by\s+', cell_text, flags=re.IGNORECASE)[0]
+#                 last_post_date = parse_date_string(cell_text)
+
+#             # Strategy 2: link with #msg or msg= in href
+#             if not last_post_date:
+#                 for a in container.find_all('a', href=re.compile(r'(#msg|msg=|\bmsg\b)', re.I)):
+#                     last_post_date = parse_date_string(a.get_text(strip=True))
+#                     if last_post_date:
+#                         break
+
+#             # Strategy 3: link with #new in href (new SMF style)
+#             if not last_post_date:
+#                 for a in container.find_all('a', href=re.compile(r'#new', re.I)):
+#                     last_post_date = parse_date_string(a.get_text(strip=True))
+#                     if last_post_date:
+#                         break
+
+#             # Strategy 4: scan all text nodes for a parseable date
+#             if not last_post_date:
+#                 for text_node in container.strings:
+#                     text = text_node.strip()
+#                     if len(text) < 6:
+#                         continue
+#                     if not re.search(r'\d', text):
+#                         continue
+#                     if not re.search(r'([A-Za-z]{3,9}|\d{1,2}[/-]\d{1,2})', text):
+#                         continue
+#                     last_post_date = parse_date_string(text)
+#                     if last_post_date:
+#                         break
+
+#             topics_dict[topic_id] = {
+#                 'url': topic_url,
+#                 'subject': subject,
+#                 'most_recent_date': last_post_date,
+#                 'started_date': None
+#             }
+
+#         topics = [t for t in topics_dict.values() if t['subject']]
+#         print(f"  Extracted {len(topics)} topics")
+
+#         if debug and topics:
+#             print(f"  [DEBUG] Sample topics:")
+#             for t in topics[:5]:
+#                 print(f"           {t['subject'][:60]!r}  date={t['most_recent_date']}")
+
+#     except Exception as e:
+#         print(f"Error extracting topic information: {e}")
+#         import traceback
+#         traceback.print_exc()
+
+#     return topics
 
 
 async def get_pagination_info(page):
