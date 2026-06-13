@@ -622,7 +622,7 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
         await asyncio.sleep(3)
 
         await page.goto(board['url'], timeout=60000)
-        await page.wait_for_load_state('networkidle', timeout=60000)
+        await page.wait_for_load_state('load', timeout=60000)
         html = await page.content()
 
         if debug:
