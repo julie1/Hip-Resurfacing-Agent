@@ -772,7 +772,26 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
                 print(f"         {c}")
             lp_tags = [tag for tag in _soup.find_all(True)
                        if 'last post' in tag.get_text().lower() and tag.name in ('p','div','td','li','span')]
-            print(f"\n[DEBUG] Tags containing
+            print(f"\n[DEBUG] Tags containing 'Last post' text ({len(lp_tags)} found):")
+            for tag in lp_tags[:10]:
+                snippet = ' '.join(tag.get_text().split())[:120]
+                print(f"         <{tag.name} class={tag.get('class')}> : {snippet}")
+            print()
+
+        await page.wait_for_load_state('networkidle', timeout=60000)
+        html = await page.content()
+
+        recent_boards = await extract_board_info(html, BASE_URL, latest_date_obj)
+
+        print(f"Processing {len(recent_boards)} boards with recent activity\n")
+
+        for board in recent_boards:
+            await process_board(page, board, latest_date_obj, new_topics, debug=debug)
+            print()
+
+        await browser.close()
+
+    return new_topics
 # async def crawl_new_content(latest_date_in_pinecone, debug=False):
 #     """Crawl forum boards and topics newer than the latest date in Pinecone."""
 #     latest_date_obj = parser.parse(latest_date_in_pinecone) if latest_date_in_pinecone else None
