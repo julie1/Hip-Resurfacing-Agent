@@ -601,8 +601,10 @@ async def navigate_to_specific_page(page, board_url, page_num):
         else:
             page_url = f"{BASE_URL}/index.php?board={board_num}.{offset}"
 
-        await page.goto(page_url, timeout=30000)
-        await page.wait_for_load_state('networkidle', timeout=30000)
+        await page.goto(page_url, timeout=60000)
+        await page.wait_for_load_state('networkidle', timeout=60000)
+        # await page.goto(page_url, timeout=30000)
+        # await page.wait_for_load_state('networkidle', timeout=30000)
 
         return True
     except Exception as e:
@@ -610,14 +612,23 @@ async def navigate_to_specific_page(page, board_url, page_num):
         return False
 
 async def process_board(page, board, latest_date_obj, new_topics, debug=False):
-    """Process a single board to find new topics."""
     try:
         print(f"Processing board: {board['name']}")
         print(f"[DEBUG] Board URL: {board['url']}")
-        # add delay
-        await asyncio.sleep(5)
-        await page.goto(board['url'], timeout=30000)
-        await page.wait_for_load_state('networkidle', timeout=30000)
+
+        # Simulate human behavior
+        await page.mouse.move(200, 300)
+        await page.mouse.move(500, 200)
+        await asyncio.sleep(3)
+
+        await page.goto(board['url'], timeout=60000)
+        await page.wait_for_load_state('networkidle', timeout=60000)
+        html = await page.content()
+
+        if debug:
+            with open('debug_board.html', 'w', encoding='utf-8') as f:
+                f.write(html)
+            print(f"[DEBUG] Board HTML saved ({len(html):,} chars)")
 
         _, max_pages = await get_pagination_info(page)
         print(f"  Found {max_pages} pages")
@@ -632,16 +643,11 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
                     break
 
             html = await page.content()
-            if debug:
-                with open('debug_board.html', 'w', encoding='utf-8') as f:
-                    f.write(html)
-            print(f"[DEBUG] Board HTML saved ({len(html):,} chars)")
             page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
 
             page_has_new_topics = False
             for topic in page_topics:
                 if not topic['most_recent_date']:
-                    # No date found, include it to be safe
                     new_topics.append(topic)
                     page_has_new_topics = True
                     print(f"    New: '{topic['subject'][:60]}' (no date)")
@@ -664,6 +670,61 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
         print(f"Error processing board {board['name']}: {e}")
         import traceback
         traceback.print_exc()
+# async def process_board(page, board, latest_date_obj, new_topics, debug=False):
+#     """Process a single board to find new topics."""
+#     try:
+#         print(f"Processing board: {board['name']}")
+#         print(f"[DEBUG] Board URL: {board['url']}")
+#         # add delay
+#         await asyncio.sleep(5)
+#         await page.goto(board['url'], timeout=30000)
+#         await page.wait_for_load_state('networkidle', timeout=30000)
+
+#         _, max_pages = await get_pagination_info(page)
+#         print(f"  Found {max_pages} pages")
+
+#         for page_num in range(1, max_pages + 1):
+#             print(f"  Processing page {page_num}/{max_pages}")
+
+#             if page_num > 1:
+#                 success = await navigate_to_specific_page(page, board['url'], page_num)
+#                 if not success:
+#                     print(f"  Failed to navigate to page {page_num}")
+#                     break
+
+#             html = await page.content()
+#             if debug:
+#                 with open('debug_board.html', 'w', encoding='utf-8') as f:
+#                     f.write(html)
+#             print(f"[DEBUG] Board HTML saved ({len(html):,} chars)")
+#             page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
+
+#             page_has_new_topics = False
+#             for topic in page_topics:
+#                 if not topic['most_recent_date']:
+#                     # No date found, include it to be safe
+#                     new_topics.append(topic)
+#                     page_has_new_topics = True
+#                     print(f"    New: '{topic['subject'][:60]}' (no date)")
+#                     continue
+
+#                 topic_most_recent_date = parser.parse(topic['most_recent_date'])
+
+#                 if not latest_date_obj or topic_most_recent_date > latest_date_obj:
+#                     new_topics.append(topic)
+#                     page_has_new_topics = True
+#                     print(f"    New: '{topic['subject'][:60]}' ({topic['most_recent_date']})")
+
+#             if not page_has_new_topics and latest_date_obj:
+#                 print(f"  No new topics on page {page_num}, stopping board scan")
+#                 break
+
+#             await asyncio.sleep(1)
+
+#     except Exception as e:
+#         print(f"Error processing board {board['name']}: {e}")
+#         import traceback
+#         traceback.print_exc()
 
 async def crawl_new_content(latest_date_in_pinecone, debug=False):
     """Crawl forum boards and topics newer than the latest date in Pinecone."""
