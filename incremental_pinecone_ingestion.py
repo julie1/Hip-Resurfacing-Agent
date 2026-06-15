@@ -232,111 +232,120 @@ def parse_date_string(date_str: str) -> str:
         print(f"Error parsing date '{date_str}': {e}")
         return None
 
-import re
-from datetime import datetime
-from bs4 import BeautifulSoup
 
 async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
-    """Row-by-row board extractor that completely prevents array mismatch issues."""
+    """Fast, index-matched board extractor that maintains your 3-minute runtime."""
+    boards = []
     recent_boards = []
-    
+
     try:
         soup = BeautifulSoup(html, 'html.parser')
-        
-        # 1. Broadly target all links pointing to forum boards
-        board_links = soup.find_all('a', href=re.compile(r'board,\d+\.\d+\.html'))
+
+        # 1. Gather all board links using your verified selector
+        board_links = soup.find_all('a', class_='subject mobile_subject')
         if not board_links:
-            board_links = soup.find_all('a', class_='subject mobile_subject')
+            board_links = soup.find_all('a', href=re.compile(r'board,\d+', re.I))
+            board_links = [a for a in board_links if len(a.get_text(strip=True)) > 4]
+
+        # 2. Inline helper to extract date cleanly from target sibling text node
+        def extract_date_from_lastpost_p(p_tag):
+            strong = p_tag.find('strong', string=re.compile(r'Last\s+post', re.I))
+            if not strong:
+                # Handle cases where the text node might not be perfectly bound by <strong>
+                strong = p_tag.find(lambda tag: tag.name == 'strong' and 'last post' in tag.get_text().lower())
             
-        print(f"Found {len(board_links)} total boards for structural evaluation")
+            if not strong:
+                return None
 
-        for a in board_links:
-            href = a.get('href', '')
-            board_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
-            board_name = a.get_text(strip=True)
+            date_parts = []
+            for sibling in strong.next_siblings:
+                if hasattr(sibling, 'name') and sibling.name == 'span':
+                    break
+                text = str(sibling).strip()
+                if text:
+                    date_parts.append(text)
 
-            # Skip utility pagination/shortcut links inside the index layout
-            if not board_name or len(board_name) <= 3 or 'action=' in href:
+            raw = ' '.join(date_parts).strip()
+            if not raw:
+                full = p_tag.get_text(strip=True)
+                raw = re.sub(r'(?i)Last\s+post:\s*', '', full)
+                raw = re.split(r'\s+by\s+', raw, flags=re.IGNORECASE)[0].strip()
+
+            return parse_date_string(raw) if raw else None
+
+        # 3. Collect paragraph and division timestamp indicators in exact document order
+        lastpost_p_tags = []
+        for strong in soup.find_all('strong', string=re.compile(r'Last\s+post', re.I)):
+            p = strong.find_parent('p')
+            if p and p not in lastpost_p_tags:
+                lastpost_p_tags.append(p)
+
+        lastpost_divs = soup.find_all('div', class_=re.compile(r'lastpost', re.I))
+        
+        print(f"Found {len(board_links)} board links, "
+              f"{len(lastpost_p_tags)} lastpost <p> tags, "
+              f"{len(lastpost_divs)} lastpost <div> tags")
+
+        # 4. Map timestamps back to links using parallel indexing
+        for i, board_link in enumerate(board_links):
+            board_name = board_link.get_text(strip=True)
+            board_url = board_link.get('href', '')
+
+            if not board_name or not board_url:
                 continue
 
-            # 2. LOCATE THE ENCLOSING ROW CONTAINER
-            # Climb up until we grab the macro structural parent block for this specific board entry
-            row_container = a
-            for _ in range(5):
-                if row_container.parent is None:
-                    break
-                # Check for standard cell wrappers, list elements, or SMF layout divs
-                if row_container.parent.name in ('tr', 'li') or any(cls in ''.join(row_container.parent.get('class', [])).lower() for cls in ['row', 'board', 'windowbg']):
-                    row_container = row_container.parent
-                    break
-                row_container = row_container.parent
-
-            # 3. CONTEXTUAL SEARCH FOR DATE WITHIN THIS SPECIFIC ROW
-            last_post_date = None
+            if not board_url.startswith('http'):
+                board_url = f"{base_url.rstrip('/')}/{board_url.lstrip('/')}"
             
-            # Target elements matching the platform's post-update date block architecture
-            strong_marker = row_container.find('strong', string=re.compile(r'Last\s+post', re.I))
-            if strong_marker:
-                # Walk text segments trailing immediately after the literal header tag
-                sibling = strong_marker.next_sibling
-                while sibling:
-                    if isinstance(sibling, str):
-                        text_val = sibling.strip()
-                        if len(text_val) >= 6 and re.search(r'\d', text_val):
-                            last_post_date = parse_date_string(text_val)
-                            if last_post_date:
-                                break
-                    elif sibling.name in ('span', 'p', 'b'):
-                        text_val = sibling.get_text(strip=True)
-                        last_post_date = parse_date_string(text_val)
-                        if last_post_date:
-                            break
-                    sibling = sibling.next_sibling
+            last_post_date = None
 
-            # Fallback text scan within the row cell bounds if tags are obscure
-            if not last_post_date:
-                for string_node in row_container.strings:
-                    text_val = string_node.strip()
-                    if 'last post' in text_val.lower() or ('latest' in text_val.lower() and re.search(r'\d', text_val)):
-                        continue
-                    if len(text_val) >= 6 and re.search(r'\d', text_val):
-                        last_post_date = parse_date_string(text_val)
-                        if last_post_date:
-                            break
+            # Attempt extraction via sequential array matching
+            if i < len(lastpost_p_tags):
+                last_post_date = extract_date_from_lastpost_p(lastpost_p_tags[i])
+
+            if not last_post_date and i < len(lastpost_divs):
+                p_tag = lastpost_divs[i].find('p')
+                if p_tag:
+                    last_post_date = extract_date_from_lastpost_p(p_tag)
+                
+                if not last_post_date:
+                    full_text = lastpost_divs[i].get_text(strip=True)
+                    date_text = re.sub(r'Last post:\s*', '', full_text, flags=re.IGNORECASE)
+                    date_text = re.split(r'\s+by\s+', date_text, flags=re.IGNORECASE)[0]
+                    last_post_date = parse_date_string(date_text)
 
             board_info = {
                 'url': board_url,
                 'name': board_name,
                 'last_post_date': last_post_date
             }
+            boards.append(board_info)
 
-            # 4. DETERMINISTIC INGESTION FILTERING
-            if not latest_date_obj or not last_post_date:
-                # Always parse if date extraction is blocked to safeguard ingestion pipeline stability
-                recent_boards.append(board_info)
-                continue
-
-            try:
-                # Standardize validation comparison boundaries
-                board_date_converted = datetime.strptime(last_post_date, '%Y-%m-%d')
-                target_comparison_date = datetime.combine(latest_date_obj.date(), datetime.min.time()) if isinstance(latest_date_obj, datetime) else datetime.combine(latest_date_obj, datetime.min.time())
-
-                if board_date_converted >= target_comparison_date:
-                    print(f"  Found recent board: {board_name} with date {last_post_date}")
-                    recent_boards.append(board_info)
-            except Exception as e:
-                # Force fallback inclusion on conversion anomalies
-                print(f"  [DEBUG] Date comparison fallback triggered for {board_name}: {e}")
+            # Strict comparison: do NOT fall back to crawling if the date is missing/old
+            if last_post_date and latest_date_obj:
+                try:
+                    # Support both datetime and date object states smoothly
+                    board_date = parser.parse(last_post_date)
+                    target_date = latest_date_obj if isinstance(latest_date_obj, datetime) else datetime.combine(latest_date_obj, datetime.min.time())
+                    
+                    if board_date.date() >= target_date.date():
+                        print(f"  Found recent active board: '{board_name}' ({last_post_date})")
+                        recent_boards.append(board_info)
+                except Exception as e:
+                    print(f"  [DEBUG] Skipping conversion exception for {board_name}: {e}")
+            elif not latest_date_obj:
                 recent_boards.append(board_info)
 
-        print(f"Found {len(recent_boards)} boards with active updates\n")
-        
+        print(f"Total boards evaluated: {len(boards)}")
+        print(f"Filtered down to {len(recent_boards)} active boards to crawl\n")
+
     except Exception as e:
         print(f"Error extracting board information: {e}")
         import traceback
         traceback.print_exc()
 
     return recent_boards
+
 
 
 
