@@ -321,110 +321,102 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
     return recent_boards
 
 
+    def extract_date_from_lastpost_p(p_tag):
+        """Pull the date text node that immediately follows <strong>Last post:</strong>."""
+        strong = p_tag.find('strong', string=re.compile(r'Last\s+post', re.I))
+        if not strong:
+            return None
+
+        # Walk siblings of <strong> inside <p>
+        date_parts = []
+        for sibling in strong.next_siblings:
+            if hasattr(sibling, 'name'):
+                # Hit a real tag (e.g. <span class="postby">) — stop
+                break
+            text = str(sibling).strip()
+            if text:
+                date_parts.append(text)
+
+        raw = ' '.join(date_parts).strip()
+        if not raw:
+            # Fallback: grab full p text and strip the "Last post:" prefix + "by …" suffix
+            full = p_tag.get_text(strip=True)
+            raw = re.sub(r'(?i)Last\s+post:\s*', '', full)
+            raw = re.split(r'\s+by\s+', raw, flags=re.IGNORECASE)[0].strip()
+
+        return parse_date_string(raw) if raw else None
+
+    # Build a flat list of all last-post <p> tags in document order
+    lastpost_p_tags = []
+    for strong in soup.find_all('strong', string=re.compile(r'Last\s+post', re.I)):
+        p = strong.find_parent('p')
+        if p and p not in lastpost_p_tags:
+            lastpost_p_tags.append(p)
+
+    # Also try the old <div class="lastpost"> structure as a secondary source
+    lastpost_divs = soup.find_all('div', class_=re.compile(r'lastpost', re.I))
+    print(f"Found {len(board_links)} board links, "
+          f"{len(lastpost_p_tags)} lastpost <p> tags, "
+          f"{len(lastpost_divs)} lastpost <div> tags")
+
+    for i, board_link in enumerate(board_links):
+        board_name = board_link.get_text(strip=True)
+        board_url = board_link.get('href', '')
+
+        if not board_name or not board_url:
+            continue
+
+        if not board_url.startswith('http'):
+            board_url = base_url + '/' + board_url.lstrip('/')
+        
+        last_post_date = None
+
+        # Try new-style <p> tags first
+        if i < len(lastpost_p_tags):
+            last_post_date = extract_date_from_lastpost_p(lastpost_p_tags[i])
+
+        # Fall back to old <div class="lastpost"> approach
+        if not last_post_date and i < len(lastpost_divs):
+            p_tag = lastpost_divs[i].find('p')
+            if p_tag:
+                last_post_date = extract_date_from_lastpost_p(p_tag)
+                if not last_post_date:
+                    # Original text-scrape approach
+                    full_text = lastpost_divs[i].get_text(strip=True)
+                    date_text = re.sub(r'Last post:\s*', '', full_text, flags=re.IGNORECASE)
+                    date_text = re.split(r'\s+by\s+', date_text, flags=re.IGNORECASE)[0]
+                    last_post_date = parse_date_string(date_text)
+
+        board_info = {
+            'url': board_url,
+            'name': board_name,
+            'last_post_date': last_post_date
+        }
+
+        boards.append(board_info)
+
+        if not latest_date_obj:
+            recent_boards.append(board_info)
+            continue
+
+        if not last_post_date:
+            # Can't determine date — include to be safe
+            recent_boards.append(board_info)
+            continue
+
+        try:
+            board_date = parser.parse(last_post_date)
+            if board_date > latest_date_obj:
+                print(f"  Found recent board: {board_name} with date {last_post_date}")
+                recent_boards.append(board_info)
+        except Exception as e:
+            print(f"  Error comparing dates for {board_name}: {e}")
+            recent_boards.append(board_info)
+
+    print(f"Found {len(boards)} total boards")
+    print(f"Found {len(recent_boards)} boards with recent activity\n")
 
         
-def extract_date_from_lastpost_p(p_tag):
-            """Pull the date text node that immediately follows <strong>Last post:</strong>."""
-            strong = p_tag.find('strong', string=re.compile(r'Last\s+post', re.I))
-            if not strong:
-                return None
-
-            # Walk siblings of <strong> inside <p>
-            date_parts = []
-            for sibling in strong.next_siblings:
-                if hasattr(sibling, 'name'):
-                    # Hit a real tag (e.g. <span class="postby">) — stop
-                    break
-                text = str(sibling).strip()
-                if text:
-                    date_parts.append(text)
-
-            raw = ' '.join(date_parts).strip()
-            if not raw:
-                # Fallback: grab full p text and strip the "Last post:" prefix + "by …" suffix
-                full = p_tag.get_text(strip=True)
-                raw = re.sub(r'(?i)Last\s+post:\s*', '', full)
-                raw = re.split(r'\s+by\s+', raw, flags=re.IGNORECASE)[0].strip()
-
-            return parse_date_string(raw) if raw else None
-
-        # Build a flat list of all last-post <p> tags in document order
-        lastpost_p_tags = []
-        for strong in soup.find_all('strong', string=re.compile(r'Last\s+post', re.I)):
-            p = strong.find_parent('p')
-            if p and p not in lastpost_p_tags:
-                lastpost_p_tags.append(p)
-
-        # Also try the old <div class="lastpost"> structure as a secondary source
-        lastpost_divs = soup.find_all('div', class_=re.compile(r'lastpost', re.I))
-        print(f"Found {len(board_links)} board links, "
-              f"{len(lastpost_p_tags)} lastpost <p> tags, "
-              f"{len(lastpost_divs)} lastpost <div> tags")
-
-        for i, board_link in enumerate(board_links):
-            board_name = board_link.get_text(strip=True)
-            board_url = board_link.get('href', '')
-
-            if not board_name or not board_url:
-                continue
-
-            if not board_url.startswith('http'):
-                board_url = base_url + '/' + board_url.lstrip('/')
-              #  board_url = board_link.get('href', '').replace('surfacehippy.info', 'surfacehippy.net')
-            
-            last_post_date = None
-
-            # Try new-style <p> tags first
-            if i < len(lastpost_p_tags):
-                last_post_date = extract_date_from_lastpost_p(lastpost_p_tags[i])
-
-            # Fall back to old <div class="lastpost"> approach
-            if not last_post_date and i < len(lastpost_divs):
-                p_tag = lastpost_divs[i].find('p')
-                if p_tag:
-                    last_post_date = extract_date_from_lastpost_p(p_tag)
-                    if not last_post_date:
-                        # Original text-scrape approach
-                        full_text = lastpost_divs[i].get_text(strip=True)
-                        date_text = re.sub(r'Last post:\s*', '', full_text, flags=re.IGNORECASE)
-                        date_text = re.split(r'\s+by\s+', date_text, flags=re.IGNORECASE)[0]
-                        last_post_date = parse_date_string(date_text)
-
-            board_info = {
-                'url': board_url,
-                'name': board_name,
-                'last_post_date': last_post_date
-            }
-
-            boards.append(board_info)
-
-            if not latest_date_obj:
-                recent_boards.append(board_info)
-                continue
-
-            if not last_post_date:
-                # Can't determine date — include to be safe
-                recent_boards.append(board_info)
-                continue
-
-            try:
-                board_date = parser.parse(last_post_date)
-                if board_date > latest_date_obj:
-                    print(f"  Found recent board: {board_name} with date {last_post_date}")
-                    recent_boards.append(board_info)
-            except Exception as e:
-                print(f"  Error comparing dates for {board_name}: {e}")
-                recent_boards.append(board_info)
-
-        print(f"Found {len(boards)} total boards")
-        print(f"Found {len(recent_boards)} boards with recent activity\n")
-
-    except Exception as e:
-        print(f"Error extracting board information: {e}")
-        import traceback
-        traceback.print_exc()
-
-    return recent_boards
 
 
 async def extract_topic_info(html: str, base_url: str, debug: bool = False):
