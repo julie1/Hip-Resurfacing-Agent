@@ -232,93 +232,112 @@ def parse_date_string(date_str: str) -> str:
         print(f"Error parsing date '{date_str}': {e}")
         return None
 
-async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
-    """Extract board URLs and their last post dates using reliable DOM sibling tracking."""
-    boards = []
-    recent_boards = []
+import re
+from datetime import datetime
+from bs4 import BeautifulSoup
 
+async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
+    """Row-by-row board extractor that completely prevents array mismatch issues."""
+    recent_boards = []
+    
     try:
         soup = BeautifulSoup(html, 'html.parser')
-        board_links = soup.find_all('a', class_='subject mobile_subject')
-
-        # Robust fallbacks for structure shifts
+        
+        # 1. Broadly target all links pointing to forum boards
+        board_links = soup.find_all('a', href=re.compile(r'board,\d+\.\d+\.html'))
         if not board_links:
-            board_links = soup.find_all('a', href=re.compile(r'board,\d+', re.I))
-            board_links = [a for a in board_links if len(a.get_text(strip=True)) > 4]
-
-        print(f"Found {len(board_links)} total boards for evaluation")
+            board_links = soup.find_all('a', class_='subject mobile_subject')
+            
+        print(f"Found {len(board_links)} total boards for structural evaluation")
 
         for a in board_links:
             href = a.get('href', '')
-            board_url = href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+            board_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
             board_name = a.get_text(strip=True)
 
-            # Locate container row to find the matching 'Last post' context block safely
+            # Skip utility pagination/shortcut links inside the index layout
+            if not board_name or len(board_name) <= 3 or 'action=' in href:
+                continue
+
+            # 2. LOCATE THE ENCLOSING ROW CONTAINER
+            # Climb up until we grab the macro structural parent block for this specific board entry
             row_container = a
             for _ in range(5):
-                if row_container.parent is None: 
+                if row_container.parent is None:
                     break
-                if row_container.parent.name in ('tr', 'li') or 'board' in ''.join(row_container.parent.get('class', [])).lower():
+                # Check for standard cell wrappers, list elements, or SMF layout divs
+                if row_container.parent.name in ('tr', 'li') or any(cls in ''.join(row_container.parent.get('class', [])).lower() for cls in ['row', 'board', 'windowbg']):
                     row_container = row_container.parent
                     break
                 row_container = row_container.parent
 
-            # Parse target date from adjacent sibling text nodes inside the row container
-            last_post_date_str = None
-            strong_marker = row_container.find('strong', string=re.compile(r'Last post', re.I))
+            # 3. CONTEXTUAL SEARCH FOR DATE WITHIN THIS SPECIFIC ROW
+            last_post_date = None
             
+            # Target elements matching the platform's post-update date block architecture
+            strong_marker = row_container.find('strong', string=re.compile(r'Last\s+post', re.I))
             if strong_marker:
-                # Walk the inline siblings immediately following the "Last post:" tag
+                # Walk text segments trailing immediately after the literal header tag
                 sibling = strong_marker.next_sibling
                 while sibling:
                     if isinstance(sibling, str):
                         text_val = sibling.strip()
                         if len(text_val) >= 6 and re.search(r'\d', text_val):
-                            last_post_date_str = parse_date_string(text_val)
-                            if last_post_date_str: 
+                            last_post_date = parse_date_string(text_val)
+                            if last_post_date:
                                 break
-                    elif sibling.name == 'span':
-                        # Check inside text tags if dates are tightly nested
+                    elif sibling.name in ('span', 'p', 'b'):
                         text_val = sibling.get_text(strip=True)
-                        last_post_date_str = parse_date_string(text_val)
-                        if last_post_date_str: 
+                        last_post_date = parse_date_string(text_val)
+                        if last_post_date:
                             break
                     sibling = sibling.next_sibling
 
-            # If node tree is too flat, search the raw text within the container bounding box
-            if not last_post_date_str:
-                for text_node in row_container.strings:
-                    text_val = text_node.strip()
+            # Fallback text scan within the row cell bounds if tags are obscure
+            if not last_post_date:
+                for string_node in row_container.strings:
+                    text_val = string_node.strip()
+                    if 'last post' in text_val.lower() or ('latest' in text_val.lower() and re.search(r'\d', text_val)):
+                        continue
                     if len(text_val) >= 6 and re.search(r'\d', text_val):
-                        last_post_date_str = parse_date_string(text_val)
-                        if last_post_date_str: 
+                        last_post_date = parse_date_string(text_val)
+                        if last_post_date:
                             break
 
-            board_data = {
+            board_info = {
                 'url': board_url,
                 'name': board_name,
-                'last_post_date': last_post_date_str
+                'last_post_date': last_post_date
             }
-            boards.append(board_data)
 
-            # Filtering condition to flag active elements
-            if last_post_date_str:
-                board_date_obj = datetime.strptime(last_post_date_str, '%Y-%m-%d').date()
-                
-                # Normalize latest_date_obj to date format
-                compare_date = latest_date_obj.date() if isinstance(latest_date_obj, datetime) else latest_date_obj
+            # 4. DETERMINISTIC INGESTION FILTERING
+            if not latest_date_obj or not last_post_date:
+                # Always parse if date extraction is blocked to safeguard ingestion pipeline stability
+                recent_boards.append(board_info)
+                continue
 
-                if not compare_date or board_date_obj >= compare_date:
-                    recent_boards.append(board_data)
-            else:
-                # Always ingest if date string is obscured to protect against lost updates
-                recent_boards.append(board_data)
+            try:
+                # Standardize validation comparison boundaries
+                board_date_converted = datetime.strptime(last_post_date, '%Y-%m-%d')
+                target_comparison_date = datetime.combine(latest_date_obj.date(), datetime.min.time()) if isinstance(latest_date_obj, datetime) else datetime.combine(latest_date_obj, datetime.min.time())
 
-        print(f"Found {len(recent_boards)} boards with recent activity")
+                if board_date_converted >= target_comparison_date:
+                    print(f"  Found recent board: {board_name} with date {last_post_date}")
+                    recent_boards.append(board_info)
+            except Exception as e:
+                # Force fallback inclusion on conversion anomalies
+                print(f"  [DEBUG] Date comparison fallback triggered for {board_name}: {e}")
+                recent_boards.append(board_info)
+
+        print(f"Found {len(recent_boards)} boards with active updates\n")
+        
     except Exception as e:
-        print(f"Error in extract_board_info: {e}")
+        print(f"Error extracting board information: {e}")
+        import traceback
+        traceback.print_exc()
 
     return recent_boards
+
 
 
     def extract_date_from_lastpost_p(p_tag):
