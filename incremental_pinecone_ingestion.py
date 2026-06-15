@@ -434,7 +434,8 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
 #         # then walk the *next sibling nodes* to grab the bare date text
 #         # before any child element (like <span class="postby">).
 
-        def extract_date_from_lastpost_p(p_tag):
+        
+def extract_date_from_lastpost_p(p_tag):
             """Pull the date text node that immediately follows <strong>Last post:</strong>."""
             strong = p_tag.find('strong', string=re.compile(r'Last\s+post', re.I))
             if not strong:
