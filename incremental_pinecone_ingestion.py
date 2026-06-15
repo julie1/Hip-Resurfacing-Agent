@@ -321,118 +321,6 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
     return recent_boards
 
 
-# def parse_date_string(date_str: str) -> str:
-#     """Parse different date formats and return YYYY-MM-DD."""
-#     try:
-#         date_str = date_str.strip()
-
-#         # Handle relative dates FIRST (before removing time)
-#         # Check for "Yesterday at HH:MM:SS PM" or just "Yesterday"
-#         if date_str.lower().startswith("yesterday"):
-#             yesterday = datetime.now(timezone.utc) - timedelta(days=1)
-#             return yesterday.strftime('%Y-%m-%d')
-
-#         if date_str.lower().startswith("today"):
-#             today = datetime.now(timezone.utc)
-#             return today.strftime('%Y-%m-%d')
-
-#         # Handle "X days ago at...", "X hours ago at...", etc.
-#         time_ago_match = re.match(r'(\d+)\s+(day|hour|week)s?\s+ago', date_str.lower())
-#         if time_ago_match:
-#             amount = int(time_ago_match.group(1))
-#             unit = time_ago_match.group(2)
-
-#             if unit == 'day':
-#                 date_obj = datetime.now(timezone.utc) - timedelta(days=amount)
-#             elif unit == 'hour':
-#                 date_obj = datetime.now(timezone.utc) - timedelta(hours=amount)
-#             elif unit == 'week':
-#                 date_obj = datetime.now(timezone.utc) - timedelta(weeks=amount)
-
-#             return date_obj.strftime('%Y-%m-%d')
-
-#         # Remove time portion: ", 08:15:55 PM" or " at 08:15:55 PM"
-#         date_str = re.sub(r'(\s+at\s+|,\s*)\d{1,2}:\d{2}(:\d{2})?\s*[AP]M', '', date_str, flags=re.IGNORECASE)
-
-#         date_patterns = [
-#             (r'([A-Za-z]+ \d+, \d{4})', '%B %d, %Y'),
-#             (r'(\d{4}-\d{2}-\d{2})', '%Y-%m-%d'),
-#             (r'(\d{1,2}/\d{1,2}/\d{4})', '%m/%d/%Y'),
-#         ]
-
-#         for pattern, date_format in date_patterns:
-#             match = re.search(pattern, date_str)
-#             if match:
-#                 date_part = match.group(1)
-#                 try:
-#                     date_obj = datetime.strptime(date_part, date_format)
-#                     return date_obj.strftime('%Y-%m-%d')
-#                 except ValueError:
-#                     continue
-
-#         return None
-
-#     except Exception as e:
-#         print(f"Error parsing date '{date_str}': {e}")
-#         return None
-
-# async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
-#     """Extract board URLs and their last post dates.
-
-#     Resilient to HTML changes: tries multiple selectors for board links
-#     and extracts the last-post date from the bare text node that follows
-#     the <strong>Last post:</strong> tag (new site structure after hack).
-#     """
-#     boards = []
-#     recent_boards = []
-
-#     try:
-#         soup = BeautifulSoup(html, 'html.parser')
-
-#         # --- Board link discovery: try several selectors in priority order ---
-#         board_links = []
-
-#         # Original selector
-#         board_links = soup.find_all('a', class_='subject mobile_subject')
-#         print(f"Found {len(board_links)} board links (class='subject mobile_subject')")
-
-#         # Fallback 1: any <a> inside a common SMF board-row container
-#         if not board_links:
-#             for selector in [
-#                 lambda s: s.find_all('a', class_=re.compile(r'subject', re.I)),
-#                 lambda s: s.find_all('td', class_=re.compile(r'info', re.I)),
-#             ]:
-#                 candidates = selector(soup)
-#                 if candidates:
-#                     # If we got <td> elements, pull the first <a> from each
-#                     links = []
-#                     for c in candidates:
-#                         if c.name == 'a':
-#                             links.append(c)
-#                         else:
-#                             a = c.find('a', href=re.compile(r'board[,=]', re.I))
-#                             if a:
-#                                 links.append(a)
-#                     if links:
-#                         board_links = links
-#                         print(f"Found {len(board_links)} board links via fallback selector")
-#                         break
-
-#         # Fallback 2: any <a href> that looks like a board URL
-#         if not board_links:
-#             board_links = soup.find_all('a', href=re.compile(r'board[,=]\d+', re.I))
-#             # Filter out pagination/utility links (very short text)
-#             board_links = [a for a in board_links if len(a.get_text(strip=True)) > 4]
-#             print(f"Found {len(board_links)} board links via href pattern fallback")
-
-#         # --- Last-post date extraction: handles the new bare-text-node structure ---
-#         # New structure (post-hack):
-#         #   <p><strong>Last post: </strong>April 08, 2026, 08:15:15 PM
-#         #     <span class="postby">...</span></p>
-#         #
-#         # Strategy: find every <strong> whose text starts with "Last post",
-#         # then walk the *next sibling nodes* to grab the bare date text
-#         # before any child element (like <span class="postby">).
 
         
 def extract_date_from_lastpost_p(p_tag):
@@ -538,8 +426,6 @@ def extract_date_from_lastpost_p(p_tag):
 
     return recent_boards
 
-import re
-from bs4 import BeautifulSoup
 
 async def extract_topic_info(html: str, base_url: str, debug: bool = False):
     """Robust topic extractor that scales to broad table/grid layouts."""
@@ -634,75 +520,6 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
         
     return topics
 
-# async def extract_topic_info(html: str, base_url: str, debug: bool = False):
-#     """Robust topic extractor that handles template shifts and URL pattern updates."""
-#     topics = []
-#     try:
-#         soup = BeautifulSoup(html, 'html.parser')
-#         # Matches old SMF, new SMF, and SEO-friendly slug subpaths
-#         topic_link_pattern = re.compile(r'(topic[,=]\d+|\/topic\/\d+)', re.IGNORECASE)
-        
-#         all_links = soup.find_all('a')
-#         matched_links = [a for a in all_links if a.get('href') and topic_link_pattern.search(a['href'])]
-        
-#         if len(matched_links) == 0:
-#             print("\n🚨 [DIAGNOSTIC] No topics found. Checking for severe layout blocks...")
-#             page_title = soup.title.string.strip() if soup.title else "No Title Tag"
-#             print(f"  -> Server Document Title: '{page_title}'")
-#             print(f"  -> HTML Length: {len(html)} characters")
-#             body_text = ' '.join(soup.get_text().split())[:300]
-#             print(f"  -> Page Context Text: {body_text}\n")
-#             return topics
-
-#         topic_containers = {}
-#         for a in matched_links:
-#             href = a.get('href', '')
-#             id_match = re.search(r'topic[,=](\d+)', href)
-#             topic_id = id_match.group(1) if id_match else href.split('/')[-1]
-            
-#             container = a
-#             for _ in range(6):
-#                 parent = container.parent
-#                 if parent is None: break
-#                 if parent.name in ('tr', 'li', 'article', 'div'):
-#                     container = parent
-#                     break
-#             topic_containers[topic_id] = container
-
-#         for topic_id, container in topic_containers.items():
-#             subject = None
-#             topic_url = None
-#             for a in container.find_all('a'):
-#                 href = a.get('href', '')
-#                 if not href or any(x in href.lower() for x in ['profile', 'action=', 'last', 'new', 'gopost']):
-#                     continue
-#                 text = a.get_text(strip=True)
-#                 if text.lower() in ('last', 'first', 'next', 'prev', '«', '»', '', 'new') or text.isdigit():
-#                     continue
-#                 if subject is None or len(text) > len(subject):
-#                     subject = text
-#                     topic_url = href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
-            
-#             if not subject: continue
-            
-#             # Simple fallback date picker
-#             last_post_date = None
-#             for text_node in container.strings:
-#                 text = text_node.strip()
-#                 if len(text) >= 6 and re.search(r'\d', text):
-#                     last_post_date = parse_date_string(text)
-#                     if last_post_date: break
-                    
-#             topics.append({
-#                 'url': topic_url,
-#                 'subject': subject,
-#                 'most_recent_date': last_post_date,
-#                 'started_date': None
-#             })
-#         print(f"  Successfully extracted {len(topics)} topics")
-#     except Exception as e:
-#         print(f"Extraction Error: {e}")
-#     return topics
 
 
 
