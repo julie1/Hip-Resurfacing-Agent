@@ -732,25 +732,7 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
             if not page_has_new_topics and latest_date_obj and page_num > 1:
                 print(f"  No new topics on page {page_num}, stopping board scan")
                 break
-            # page_has_new_topics = False
-            # for topic in page_topics:
-            #     if not topic.get('most_recent_date'):
-            #         new_topics.append(topic)
-            #         page_has_new_topics = True
-            #         print(f"    New: '{topic['subject'][:60]}' (no date / fallback force-ingest)")
-            #         continue
-
-                # topic_most_recent_date = parser.parse(topic['most_recent_date'])
-
-                # if not latest_date_obj or topic_most_recent_date > latest_date_obj:
-                #     new_topics.append(topic)
-                #     page_has_new_topics = True
-                #     print(f"    New: '{topic['subject'][:60]}' ({topic['most_recent_date']})")
-
-            # if not page_has_new_topics and latest_date_obj:
-            #     print(f"  No new topics on page {page_num}, stopping board scan")
-            #     break
-
+           
             await asyncio.sleep(1)
 
     except Exception as e:
