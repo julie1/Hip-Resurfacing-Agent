@@ -691,11 +691,16 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
 
             print(f"  Extracted {len(page_topics)} total topics from page content")
 
-             # --- UPDATED FAIL-SAFE FILTERING LOOP IN process_board ---
+                        # --- FIXED AND CRASH-PROOF FILTERING LOOP IN process_board ---
             page_has_new_topics = False
             for topic in page_topics:
+                # Resolve potential multi-date array packaging issues from extract_topic_info
+                raw_date = topic.get('most_recent_date')
+                if isinstance(raw_date, (list, tuple)):
+                    raw_date = raw_date[0] if raw_date else None
+
                 # 1. FORCE INGESTION: If there's no date, or if the extracted date string is unparseable
-                if not topic.get('most_recent_date'):
+                if not raw_date:
                     new_topics.append(topic)
                     page_has_new_topics = True
                     print(f"    New (Forced): '{topic['subject'][:60]}' (Missing date context)")
@@ -703,7 +708,8 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
 
                 try:
                     # 2. STANDARD CHECKPOINT COMPARISON
-                    topic_most_recent_date = parser.parse(topic['most_recent_date'])
+                    # Pass the safely extracted string to the dateutil parser
+                    topic_most_recent_date = parser.parse(str(raw_date))
                     
                     # Normalize both to timezone-naive datetimes or dates for safe evaluation
                     if isinstance(latest_date_obj, datetime):
@@ -719,22 +725,22 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
                     if topic_most_recent_date >= target_compare:
                         new_topics.append(topic)
                         page_has_new_topics = True
-                        print(f"    New: '{topic['subject'][:60]}' ({topic['most_recent_date']})")
+                        print(f"    New: '{topic['subject'][:60]}' ({raw_date})")
                 
                 except Exception as e:
                     # 3. SAFETY NET: If date parsing blows up, do NOT skip the post.
-                    # Send it to Pinecone anyway, where your vector hashes will safely deduplicate it.
                     new_topics.append(topic)
                     page_has_new_topics = True
                     print(f"    New (Safety Fallback): '{topic['subject'][:60]}' (Parsing error: {e})")
-            # CHANGE HERE: Since we want to ensure we inspect everything on Page 1 
-            # regardless of whether the first few topics look old, we do NOT break on Page 1.
+
+            # The page_num check is positioned correctly here outside the topic loop
             if not page_has_new_topics and latest_date_obj and page_num > 1:
                 print(f"  No new topics on page {page_num}, stopping board scan")
                 break
            
             await asyncio.sleep(1)
 
+       
     except Exception as e:
         print(f"Error processing board {board['name']}: {e}")
         import traceback
