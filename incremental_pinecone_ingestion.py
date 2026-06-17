@@ -290,7 +290,7 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
                 continue
 
             try:
-                board_date_parsed = date_util_parser.parse(last_post_date).date()
+                board_date_parsed = parser.parse(last_post_date).date()
                 comparison_target = latest_date_obj.date() if isinstance(latest_date_obj, datetime) else latest_date_obj
                 
                 if board_date_parsed >= comparison_target:
