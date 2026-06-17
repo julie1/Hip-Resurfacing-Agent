@@ -233,118 +233,99 @@ def parse_date_string(date_str: str) -> str:
         return None
 
 
-async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
-    """Fast, index-matched board extractor that maintains your 3-minute runtime."""
-    boards = []
-    recent_boards = []
 
+async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
+    """Extremely resilient main forum page parser. Combines three separate extraction strategies."""
+    recent_boards = []
     try:
         soup = BeautifulSoup(html, 'html.parser')
-
-        # 1. Gather all board links using your verified selector
-        board_links = soup.find_all('a', class_='subject mobile_subject')
-        if not board_links:
-            board_links = soup.find_all('a', href=re.compile(r'board,\d+', re.I))
-            board_links = [a for a in board_links if len(a.get_text(strip=True)) > 4]
-
-        # 2. Inline helper to extract date cleanly from target sibling text node
-        def extract_date_from_lastpost_p(p_tag):
-            strong = p_tag.find('strong', string=re.compile(r'Last\s+post', re.I))
-            if not strong:
-                # Handle cases where the text node might not be perfectly bound by <strong>
-                strong = p_tag.find(lambda tag: tag.name == 'strong' and 'last post' in tag.get_text().lower())
-            
-            if not strong:
-                return None
-
-            date_parts = []
-            for sibling in strong.next_siblings:
-                if hasattr(sibling, 'name') and sibling.name == 'span':
-                    break
-                text = str(sibling).strip()
-                if text:
-                    date_parts.append(text)
-
-            raw = ' '.join(date_parts).strip()
-            if not raw:
-                full = p_tag.get_text(strip=True)
-                raw = re.sub(r'(?i)Last\s+post:\s*', '', full)
-                raw = re.split(r'\s+by\s+', raw, flags=re.IGNORECASE)[0].strip()
-
-            return parse_date_string(raw) if raw else None
-
-        # 3. Collect paragraph and division timestamp indicators in exact document order
-        lastpost_p_tags = []
-        for strong in soup.find_all('strong', string=re.compile(r'Last\s+post', re.I)):
-            p = strong.find_parent('p')
-            if p and p not in lastpost_p_tags:
-                lastpost_p_tags.append(p)
-
-        lastpost_divs = soup.find_all('div', class_=re.compile(r'lastpost', re.I))
         
-        print(f"Found {len(board_links)} board links, "
-              f"{len(lastpost_p_tags)} lastpost <p> tags, "
-              f"{len(lastpost_divs)} lastpost <div> tags")
+        # Strategy A: Target modern SMF board anchor element classes
+        board_links = soup.find_all('a', class_='subject mobile_subject')
+        
+        # Strategy B: Fallback to any anchors matching explicit board link strings
+        if not board_links:
+            board_links = soup.find_all('a', href=re.compile(r'board,\d+\.\d+\.html'))
+            
+        # Strategy C: Broad parameter sweep for index tracking paths
+        if not board_links:
+            board_links = soup.find_all('a', href=re.compile(r'board=\d+'))
 
-        # 4. Map timestamps back to links using parallel indexing
-        for i, board_link in enumerate(board_links):
-            board_name = board_link.get_text(strip=True)
-            board_url = board_link.get('href', '')
+        # Filter out noisy elements (short utility strings or pagination buttons)
+        clean_links = []
+        for a in board_links:
+            text = a.get_text(strip=True)
+            href = a.get('href', '')
+            if text and len(text) > 3 and 'action=' not in href and href not in [l.get('href') for l in clean_links]:
+                clean_links.append(a)
 
-            if not board_name or not board_url:
+        print(f"  [DEBUG] Board discovery phase: Found {len(clean_links)} candidate board rows.")
+
+        for a in clean_links:
+            board_name = a.get_text(strip=True)
+            href = a.get('href', '')
+            board_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
+
+            # Step Upward to Find Row Wrapper Context Container Box
+            row_container = a
+            for _ in range(5):
+                if row_container.parent is None: 
+                    break
+                if row_container.parent.name in ('tr', 'li') or any(c in ''.join(row_container.parent.get('class', [])).lower() for c in ['row', 'board', 'windowbg']):
+                    row_container = row_container.parent
+                    break
+                row_container = row_container.parent
+
+            # Locate Sibling Text Node Strings Containing Timestamps
+            last_post_date = None
+            strong_marker = row_container.find('strong', string=re.compile(r'Last\s+post', re.I))
+            
+            if strong_marker:
+                sibling = strong_marker.next_sibling
+                while sibling:
+                    if isinstance(sibling, str):
+                        text_val = sibling.strip()
+                        if len(text_val) >= 6 and re.search(r'\d', text_val):
+                            last_post_date = parse_date_string(text_val)
+                            if last_post_date: break
+                    elif sibling.name in ('span', 'p', 'b'):
+                        text_val = sibling.get_text(strip=True)
+                        last_post_date = parse_date_string(text_val)
+                        if last_post_date: break
+                    sibling = sibling.next_sibling
+
+            # Flat Row Content Fallback String Lookup Scan 
+            if not last_post_date:
+                for text_node in row_container.strings:
+                    text_val = text_node.strip()
+                    if len(text_val) >= 6 and re.search(r'\d', text_val):
+                        last_post_date = parse_date_string(text_val)
+                        if last_post_date: break
+
+            board_info = {'url': board_url, 'name': board_name, 'last_post_date': last_post_date}
+
+            # Comparison Checkpoint Filter
+            if not latest_date_obj or not last_post_date:
+                # Force addition if the layout date can't be parsed to prevent dropped records
+                recent_boards.append(board_info)
                 continue
 
-            if not board_url.startswith('http'):
-                board_url = f"{base_url.rstrip('/')}/{board_url.lstrip('/')}"
-            
-            last_post_date = None
-
-            # Attempt extraction via sequential array matching
-            if i < len(lastpost_p_tags):
-                last_post_date = extract_date_from_lastpost_p(lastpost_p_tags[i])
-
-            if not last_post_date and i < len(lastpost_divs):
-                p_tag = lastpost_divs[i].find('p')
-                if p_tag:
-                    last_post_date = extract_date_from_lastpost_p(p_tag)
+            try:
+                board_date_parsed = date_util_parser.parse(last_post_date).date()
+                comparison_target = latest_date_obj.date() if isinstance(latest_date_obj, datetime) else latest_date_obj
                 
-                if not last_post_date:
-                    full_text = lastpost_divs[i].get_text(strip=True)
-                    date_text = re.sub(r'Last post:\s*', '', full_text, flags=re.IGNORECASE)
-                    date_text = re.split(r'\s+by\s+', date_text, flags=re.IGNORECASE)[0]
-                    last_post_date = parse_date_string(date_text)
-
-            board_info = {
-                'url': board_url,
-                'name': board_name,
-                'last_post_date': last_post_date
-            }
-            boards.append(board_info)
-
-            # Strict comparison: do NOT fall back to crawling if the date is missing/old
-            if last_post_date and latest_date_obj:
-                try:
-                    # Support both datetime and date object states smoothly
-                    board_date = parser.parse(last_post_date)
-                    target_date = latest_date_obj if isinstance(latest_date_obj, datetime) else datetime.combine(latest_date_obj, datetime.min.time())
-                    
-                    if board_date.date() >= target_date.date():
-                        print(f"  Found recent active board: '{board_name}' ({last_post_date})")
-                        recent_boards.append(board_info)
-                except Exception as e:
-                    print(f"  [DEBUG] Skipping conversion exception for {board_name}: {e}")
-            elif not latest_date_obj:
+                if board_date_parsed >= comparison_target:
+                    print(f"    -> Active Board Detected: '{board_name}' ({last_post_date})")
+                    recent_boards.append(board_info)
+            except Exception:
+                # Add to crawling queue if comparison math hits an anomaly
                 recent_boards.append(board_info)
 
-        print(f"Total boards evaluated: {len(boards)}")
-        print(f"Filtered down to {len(recent_boards)} active boards to crawl\n")
-
+        print(f"  [RESULT] Identified {len(recent_boards)} boards containing active updates.\n")
     except Exception as e:
-        print(f"Error extracting board information: {e}")
-        import traceback
-        traceback.print_exc()
-
+        print(f"🚨 Error inside extract_board_info: {e}")
     return recent_boards
+
 
 
 
@@ -607,29 +588,24 @@ async def navigate_to_specific_page(page, board_url, page_num):
         print(f"  Error navigating to page {page_num}: {e}")
         return False
 
-import re
-import random
-import asyncio
-from datetime import datetime
-from dateutil import parser as date_util_parser
-
 async def process_board(page, board, latest_date_obj, new_topics, debug=False):
+    """Crash-proof topic crawler that standardizes metadata validation."""
     try:
         print(f"Processing board: {board['name']}")
         print(f"[DEBUG] Board URL: {board['url']}")
 
-        # 1. Simulate human behavior
+        # Mouse Movements
         await page.mouse.move(200, 300)
         await page.mouse.move(500, 200)
-        await asyncio.sleep(random.uniform(1.5, 3.0))
+        await asyncio.sleep(random.uniform(1.0, 2.5))
 
-        # 2. Dual-Navigation Strategy to bypass Cloudflare
+        # Anti-Bot Evasion Navigation Blocks
         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        await asyncio.sleep(6.0) 
+        await asyncio.sleep(5.0) 
         await page.wait_for_load_state('networkidle')
 
         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        await asyncio.sleep(random.uniform(2.5, 4.5))
+        await asyncio.sleep(random.uniform(2.0, 4.0))
         await page.wait_for_load_state('domcontentloaded')
 
         try:
@@ -638,11 +614,6 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
             pass
 
         html = await page.content()
-        if debug:
-            with open('debug_board.html', 'w', encoding='utf-8') as f:
-                f.write(html)
-            print(f"[DEBUG] Board HTML saved ({len(html):,} chars)")
-
         _, max_pages = await get_pagination_info(page)
         print(f"  Found {max_pages} pages")
 
@@ -652,18 +623,15 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
             if page_num > 1:
                 success = await navigate_to_specific_page(page, board['url'], page_num)
                 if not success:
-                    print(f"  Failed to navigate to page {page_num}")
                     break
 
             html = await page.content()
             page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
-            
             print(f"  Extracted {len(page_topics)} total topics from page content")
 
             page_has_new_topics = False
             
-            # 3. Timezone Standardization
-            # Convert checkpoint to a naive datetime object to ensure safe comparisons
+            # Form Timezone Naive Target Checks
             if latest_date_obj:
                 if isinstance(latest_date_obj, datetime):
                     target_checkpoint = latest_date_obj.replace(tzinfo=None)
@@ -674,12 +642,9 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
 
             for topic in page_topics:
                 raw_date = topic.get('most_recent_date')
-                
-                # Unpack list structures if returned by the extraction fallback checks
                 if isinstance(raw_date, (list, tuple)):
-                    raw_date = raw_date[0] if raw_date else None
+                    raw_date = raw_date if raw_date else None
 
-                # 4. Force Ingestion Fallback: If date metadata is missing, force ingest it
                 if not raw_date:
                     new_topics.append(topic)
                     page_has_new_topics = True
@@ -687,38 +652,24 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
                     continue
 
                 try:
-                    # Parse the string and strip out timezone parameters to make it naive
                     topic_date = date_util_parser.parse(str(raw_date)).replace(tzinfo=None)
-
-                    # 5. Robust Date Comparison
                     if not target_checkpoint or topic_date >= target_checkpoint:
                         new_topics.append(topic)
                         page_has_new_topics = True
                         print(f"    -> New Topic Found: '{topic['subject'][:50]}' ({raw_date})")
-                    else:
-                        if debug:
-                            print(f"    [DEBUG] Filtered out older topic: '{topic['subject'][:40]}' ({raw_date})")
-
-                except Exception as parse_err:
-                    # Safety Net: If date comparison crashes, do NOT skip the post.
-                    # Send it to Pinecone anyway, where vector hashes will safely deduplicate it.
+                except Exception as err:
                     new_topics.append(topic)
                     page_has_new_topics = True
-                    print(f"    -> Safety Added: '{topic['subject'][:50]}' (Evaluation issue: {parse_err})")
+                    print(f"    -> Safety Added: '{topic['subject'][:50]}' (Evaluation issue: {err})")
 
-            # CRITICAL FIX: Never allow the script to execute a short-circuit break on Page 1.
-            # This ensures the loop sweeps past any sticky/pinned topics and catches the fresh post below.
+            # Never allow a short-circuit break statement on Page 1
             if not page_has_new_topics and target_checkpoint and page_num > 1:
                 print(f"  No new topics on page {page_num}, stopping board scan")
                 break
 
             await asyncio.sleep(1)
-
     except Exception as e:
         print(f"Error processing board {board['name']}: {e}")
-        import traceback
-        traceback.print_exc()
-
     return new_topics
 
 
