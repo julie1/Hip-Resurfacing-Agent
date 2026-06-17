@@ -607,33 +607,35 @@ async def navigate_to_specific_page(page, board_url, page_num):
         print(f"  Error navigating to page {page_num}: {e}")
         return False
 
+import re
+import random
+import asyncio
+from datetime import datetime
+from dateutil import parser as date_util_parser
+
 async def process_board(page, board, latest_date_obj, new_topics, debug=False):
     try:
         print(f"Processing board: {board['name']}")
         print(f"[DEBUG] Board URL: {board['url']}")
 
-        # Simulate human behavior
+        # 1. Simulate human behavior
         await page.mouse.move(200, 300)
         await page.mouse.move(500, 200)
-        await asyncio.sleep(random.uniform(2.0, 4.0))
+        await asyncio.sleep(random.uniform(1.5, 3.0))
 
-        # First visit to navigate past initial challenges
+        # 2. Dual-Navigation Strategy to bypass Cloudflare
         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        await asyncio.sleep(8.0)  # Full window for post-verification redirect
+        await asyncio.sleep(6.0) 
         await page.wait_for_load_state('networkidle')
 
-        # Re-verify page content delivery
         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        await asyncio.sleep(random.uniform(3.5, 6.0))
+        await asyncio.sleep(random.uniform(2.5, 4.5))
         await page.wait_for_load_state('domcontentloaded')
 
-        # FIX: Instead of waiting for specific volatile CSS classes like 'a.subject',
-        # we dynamically wait for any standard content layout marker or anchor tags to appear.
         try:
-            await page.wait_for_selector('a', timeout=15000)
+            await page.wait_for_selector('a', timeout=10000)
         except Exception:
-            print("  [WARNING] Universal link elements took too long to load. Proceeding...")
-            await asyncio.sleep(5)
+            pass
 
         html = await page.content()
         if debug:
@@ -654,173 +656,72 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
                     break
 
             html = await page.content()
-            
-            # --- ROBUST INLINE FALLBACK TOPIC EXTRACTION ---
-            # If your underlying extract_topic_info() relies on 'a.subject', it will return 0.
-            # We patch it directly by running a regex-based URL lookup over the BeautifulSoup DOM.
             page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
-
-            if not page_topics:
-                if debug:
-                    print("  [DEBUG] extract_topic_info returned 0 topics. Applying URL-regex extraction fallback...")
-                
-                soup = BeautifulSoup(html, 'html.parser')
-                # Match links matching the standard SMF topic pattern: topic,XXXX.X.html
-                topic_elements = soup.find_all('a', href=re.compile(r'topic,\d+\.\d+\.html'))
-                
-                extracted_fallback = []
-                for link in topic_elements:
-                    href = link.get('href', '')
-                    
-                    # Avoid noise elements like "Go to latest message" shortcuts
-                    if ';topicseen' in href or '#msg' in href or 'msg' in href:
-                        continue
-                    
-                    topic_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
-                    topic_title = link.get_text(strip=True)
-                    
-                    if topic_title and topic_url not in [t['url'] for t in extracted_fallback]:
-                        # Mock object format returned by extract_topic_info
-                        # If your RAG requires actual dates, we default to None so it pulls it as a new post
-                        extracted_fallback.append({
-                            'url': topic_url,
-                            'subject': topic_title,
-                            'most_recent_date': None  
-                        })
-                page_topics = extracted_fallback
-
+            
             print(f"  Extracted {len(page_topics)} total topics from page content")
 
-                        # --- FIXED AND CRASH-PROOF FILTERING LOOP IN process_board ---
             page_has_new_topics = False
+            
+            # 3. Timezone Standardization
+            # Convert checkpoint to a naive datetime object to ensure safe comparisons
+            if latest_date_obj:
+                if isinstance(latest_date_obj, datetime):
+                    target_checkpoint = latest_date_obj.replace(tzinfo=None)
+                else:
+                    target_checkpoint = datetime.combine(latest_date_obj, datetime.min.time()).replace(tzinfo=None)
+            else:
+                target_checkpoint = None
+
             for topic in page_topics:
-                # Resolve potential multi-date array packaging issues from extract_topic_info
                 raw_date = topic.get('most_recent_date')
+                
+                # Unpack list structures if returned by the extraction fallback checks
                 if isinstance(raw_date, (list, tuple)):
                     raw_date = raw_date[0] if raw_date else None
 
-                # 1. FORCE INGESTION: If there's no date, or if the extracted date string is unparseable
+                # 4. Force Ingestion Fallback: If date metadata is missing, force ingest it
                 if not raw_date:
                     new_topics.append(topic)
                     page_has_new_topics = True
-                    print(f"    New (Forced): '{topic['subject'][:60]}' (Missing date context)")
+                    print(f"    -> Force Added: '{topic['subject'][:50]}' (Missing date metadata)")
                     continue
 
                 try:
-                    # 2. STANDARD CHECKPOINT COMPARISON
-                    # Pass the safely extracted string to the dateutil parser
-                    topic_most_recent_date = parser.parse(str(raw_date))
-                    
-                    # Normalize both to timezone-naive datetimes or dates for safe evaluation
-                    if isinstance(latest_date_obj, datetime):
-                        target_compare = latest_date_obj
-                    else:
-                        target_compare = datetime.combine(latest_date_obj, datetime.min.time())
-                        
-                    if topic_most_recent_date.tzinfo is not None:
-                        topic_most_recent_date = topic_most_recent_date.replace(tzinfo=None)
-                    if target_compare.tzinfo is not None:
-                        target_compare = target_compare.replace(tzinfo=None)
+                    # Parse the string and strip out timezone parameters to make it naive
+                    topic_date = date_util_parser.parse(str(raw_date)).replace(tzinfo=None)
 
-                    if topic_most_recent_date >= target_compare:
+                    # 5. Robust Date Comparison
+                    if not target_checkpoint or topic_date >= target_checkpoint:
                         new_topics.append(topic)
                         page_has_new_topics = True
-                        print(f"    New: '{topic['subject'][:60]}' ({raw_date})")
-                
-                except Exception as e:
-                    # 3. SAFETY NET: If date parsing blows up, do NOT skip the post.
+                        print(f"    -> New Topic Found: '{topic['subject'][:50]}' ({raw_date})")
+                    else:
+                        if debug:
+                            print(f"    [DEBUG] Filtered out older topic: '{topic['subject'][:40]}' ({raw_date})")
+
+                except Exception as parse_err:
+                    # Safety Net: If date comparison crashes, do NOT skip the post.
+                    # Send it to Pinecone anyway, where vector hashes will safely deduplicate it.
                     new_topics.append(topic)
                     page_has_new_topics = True
-                    print(f"    New (Safety Fallback): '{topic['subject'][:60]}' (Parsing error: {e})")
+                    print(f"    -> Safety Added: '{topic['subject'][:50]}' (Evaluation issue: {parse_err})")
 
-            # The page_num check is positioned correctly here outside the topic loop
-            if not page_has_new_topics and latest_date_obj and page_num > 1:
+            # CRITICAL FIX: Never allow the script to execute a short-circuit break on Page 1.
+            # This ensures the loop sweeps past any sticky/pinned topics and catches the fresh post below.
+            if not page_has_new_topics and target_checkpoint and page_num > 1:
                 print(f"  No new topics on page {page_num}, stopping board scan")
                 break
-           
+
             await asyncio.sleep(1)
 
-       
     except Exception as e:
         print(f"Error processing board {board['name']}: {e}")
         import traceback
         traceback.print_exc()
 
-# async def process_board(page, board, latest_date_obj, new_topics, debug=False):
-#     try:
-#         print(f"Processing board: {board['name']}")
-#         print(f"[DEBUG] Board URL: {board['url']}")
+    return new_topics
 
-#         # Simulate human behavior
-#         await page.mouse.move(200, 300)
-#         await page.mouse.move(500, 200)
-#         await asyncio.sleep(3)
 
-#         await page.mouse.move(800, 400)
-#         await page.mouse.move(600, 300)
-#         await asyncio.sleep(5)
-#         # In process_board, update the page.goto call:
-                
-#         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        
-#         # Give Cloudflare a full window to complete the post-verification redirect
-#         await asyncio.sleep(8.0)
-#         await page.wait_for_load_state('networkidle')
-
-#         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-#         await asyncio.sleep(random.uniform(3.5, 6.0))
-#         await page.wait_for_load_state('domcontentloaded')
-
-#         try:
-#             await page.wait_for_selector('a.subject', timeout=15000)
-#         except:
-#             await asyncio.sleep(5)
-#         html = await page.content()
-#         if debug:
-#             with open('debug_board.html', 'w', encoding='utf-8') as f:
-#                 f.write(html)
-#             print(f"[DEBUG] Board HTML saved ({len(html):,} chars)")
-
-#         _, max_pages = await get_pagination_info(page)
-#         print(f"  Found {max_pages} pages")
-
-#         for page_num in range(1, max_pages + 1):
-#             print(f"  Processing page {page_num}/{max_pages}")
-
-#             if page_num > 1:
-#                 success = await navigate_to_specific_page(page, board['url'], page_num)
-#                 if not success:
-#                     print(f"  Failed to navigate to page {page_num}")
-#                     break
-
-#             html = await page.content()
-#             page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
-
-#             page_has_new_topics = False
-#             for topic in page_topics:
-#                 if not topic['most_recent_date']:
-#                     new_topics.append(topic)
-#                     page_has_new_topics = True
-#                     print(f"    New: '{topic['subject'][:60]}' (no date)")
-#                     continue
-
-#                 topic_most_recent_date = parser.parse(topic['most_recent_date'])
-
-#                 if not latest_date_obj or topic_most_recent_date > latest_date_obj:
-#                     new_topics.append(topic)
-#                     page_has_new_topics = True
-#                     print(f"    New: '{topic['subject'][:60]}' ({topic['most_recent_date']})")
-
-#             if not page_has_new_topics and latest_date_obj:
-#                 print(f"  No new topics on page {page_num}, stopping board scan")
-#                 break
-
-#             await asyncio.sleep(1)
-
-#     except Exception as e:
-#         print(f"Error processing board {board['name']}: {e}")
-#         import traceback
-#         traceback.print_exc()
 
 
 async def crawl_new_content(latest_date_in_pinecone, debug=False):
