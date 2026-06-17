@@ -234,19 +234,28 @@ def parse_date_string(date_str: str) -> str:
 
 
 async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
-    """Resilient board filter that drops runtime back down to 3 minutes."""
+    """Yesterday's exact working version that successfully finds the new boards."""
     recent_boards = []
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Priority selectors
+        # 1. Gather all board name links
         board_links = soup.find_all('a', class_='subject mobile_subject')
         if not board_links:
             board_links = soup.find_all('a', href=re.compile(r'board,\d+\.\d+\.html'))
 
-        print(f"  [DEBUG] Evaluating {len(board_links)} boards for active updates.")
+        # 2. Gather all last post paragraph tags across the page
+        lastpost_p_tags = soup.find_all('p', class_='lastpost')
 
-        for a in board_links:
+        print(f"  [DEBUG] Found {len(board_links)} board links and {len(lastpost_p_tags)} last post blocks.")
+
+        # Determine the maximum safe index to loop through to prevent out-of-bounds crashes
+        max_idx = min(len(board_links), len(lastpost_p_tags))
+
+        for i in range(max_idx):
+            a = board_links[i]
+            p_tag = lastpost_p_tags[i]
+
             board_name = a.get_text(strip=True)
             href = a.get('href', '')
             board_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
@@ -254,42 +263,23 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
             if not board_name or len(board_name) <= 3 or 'action=' in href:
                 continue
 
-            # Walk up to find row bounds safely
-            row_container = a
-            for _ in range(5):
-                if row_container.parent is None: break
-                if row_container.parent.name in ('tr', 'li'):
-                    row_container = row_container.parent
-                    break
-                row_container = row_container.parent
-
-            # Locate date node
-            last_post_date = None
-            strong_marker = row_container.find('strong', string=re.compile(r'Last\s+post', re.I))
-            if strong_marker and strong_marker.next_sibling:
-                text_val = str(strong_marker.next_sibling).strip()
-                if len(text_val) >= 6 and re.search(r'\d', text_val):
-                    last_post_date = parse_date_string(text_val)
-
-            if not last_post_date:
-                for text_node in row_container.strings:
-                    if len(text_node.strip()) >= 6 and re.search(r'\d', text_node):
-                        last_post_date = parse_date_string(text_node.strip())
-                        if last_post_date: break
+            # Extract the raw text from yesterday's paragraph tag layout
+            p_text = p_tag.get_text(strip=True)
+            last_post_date = parse_date_string(p_text)
 
             board_info = {'url': board_url, 'name': board_name, 'last_post_date': last_post_date}
 
-            # RUNTIME FIX: If there's no latest_date_obj checkpoint, track everything
             if not latest_date_obj:
                 recent_boards.append(board_info)
                 continue
 
-            # CRITICAL TIMEOUT FILTER PROTECTION:
-            # If date extraction is missing, skip the board to protect execution speed.
+            # If the date string is completely missing, default to appending it to prevent drops
             if not last_post_date:
+                recent_boards.append(board_info)
                 continue
 
             try:
+                # Use the clean global parser instance
                 board_date_parsed = parser.parse(last_post_date).date()
                 comparison_target = latest_date_obj.date() if isinstance(latest_date_obj, datetime) else latest_date_obj
                 
@@ -297,15 +287,13 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
                     print(f"    -> Active Board Detected: '{board_name}' ({last_post_date})")
                     recent_boards.append(board_info)
             except Exception:
-                # Skip board if date formatting causes a comparison error
-                continue
+                # Safety fallback: add the board if date logic hits an evaluation error
+                recent_boards.append(board_info)
 
         print(f"  [RESULT] Isolated down to {len(recent_boards)} active boards to process.\n")
     except Exception as e:
         print(f"🚨 Error inside extract_board_info: {e}")
     return recent_boards
-
-
 
 
 
