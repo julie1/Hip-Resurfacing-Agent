@@ -233,81 +233,60 @@ def parse_date_string(date_str: str) -> str:
         return None
 
 
-
 async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
-    """Extremely resilient main forum page parser. Combines three separate extraction strategies."""
+    """Resilient board filter that drops runtime back down to 3 minutes."""
     recent_boards = []
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Strategy A: Target modern SMF board anchor element classes
+        # Priority selectors
         board_links = soup.find_all('a', class_='subject mobile_subject')
-        
-        # Strategy B: Fallback to any anchors matching explicit board link strings
         if not board_links:
             board_links = soup.find_all('a', href=re.compile(r'board,\d+\.\d+\.html'))
-            
-        # Strategy C: Broad parameter sweep for index tracking paths
-        if not board_links:
-            board_links = soup.find_all('a', href=re.compile(r'board=\d+'))
 
-        # Filter out noisy elements (short utility strings or pagination buttons)
-        clean_links = []
+        print(f"  [DEBUG] Evaluating {len(board_links)} boards for active updates.")
+
         for a in board_links:
-            text = a.get_text(strip=True)
-            href = a.get('href', '')
-            if text and len(text) > 3 and 'action=' not in href and href not in [l.get('href') for l in clean_links]:
-                clean_links.append(a)
-
-        print(f"  [DEBUG] Board discovery phase: Found {len(clean_links)} candidate board rows.")
-
-        for a in clean_links:
             board_name = a.get_text(strip=True)
             href = a.get('href', '')
             board_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
 
-            # Step Upward to Find Row Wrapper Context Container Box
+            if not board_name or len(board_name) <= 3 or 'action=' in href:
+                continue
+
+            # Walk up to find row bounds safely
             row_container = a
             for _ in range(5):
-                if row_container.parent is None: 
-                    break
-                if row_container.parent.name in ('tr', 'li') or any(c in ''.join(row_container.parent.get('class', [])).lower() for c in ['row', 'board', 'windowbg']):
+                if row_container.parent is None: break
+                if row_container.parent.name in ('tr', 'li'):
                     row_container = row_container.parent
                     break
                 row_container = row_container.parent
 
-            # Locate Sibling Text Node Strings Containing Timestamps
+            # Locate date node
             last_post_date = None
             strong_marker = row_container.find('strong', string=re.compile(r'Last\s+post', re.I))
-            
-            if strong_marker:
-                sibling = strong_marker.next_sibling
-                while sibling:
-                    if isinstance(sibling, str):
-                        text_val = sibling.strip()
-                        if len(text_val) >= 6 and re.search(r'\d', text_val):
-                            last_post_date = parse_date_string(text_val)
-                            if last_post_date: break
-                    elif sibling.name in ('span', 'p', 'b'):
-                        text_val = sibling.get_text(strip=True)
-                        last_post_date = parse_date_string(text_val)
-                        if last_post_date: break
-                    sibling = sibling.next_sibling
+            if strong_marker and strong_marker.next_sibling:
+                text_val = str(strong_marker.next_sibling).strip()
+                if len(text_val) >= 6 and re.search(r'\d', text_val):
+                    last_post_date = parse_date_string(text_val)
 
-            # Flat Row Content Fallback String Lookup Scan 
             if not last_post_date:
                 for text_node in row_container.strings:
-                    text_val = text_node.strip()
-                    if len(text_val) >= 6 and re.search(r'\d', text_val):
-                        last_post_date = parse_date_string(text_val)
+                    if len(text_node.strip()) >= 6 and re.search(r'\d', text_node):
+                        last_post_date = parse_date_string(text_node.strip())
                         if last_post_date: break
 
             board_info = {'url': board_url, 'name': board_name, 'last_post_date': last_post_date}
 
-            # Comparison Checkpoint Filter
-            if not latest_date_obj or not last_post_date:
-                # Force addition if the layout date can't be parsed to prevent dropped records
+            # RUNTIME FIX: If there's no latest_date_obj checkpoint, track everything
+            if not latest_date_obj:
                 recent_boards.append(board_info)
+                continue
+
+            # CRITICAL TIMEOUT FILTER PROTECTION:
+            # If date extraction is missing, skip the board to protect execution speed.
+            if not last_post_date:
                 continue
 
             try:
@@ -318,13 +297,14 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
                     print(f"    -> Active Board Detected: '{board_name}' ({last_post_date})")
                     recent_boards.append(board_info)
             except Exception:
-                # Add to crawling queue if comparison math hits an anomaly
-                recent_boards.append(board_info)
+                # Skip board if date formatting causes a comparison error
+                continue
 
-        print(f"  [RESULT] Identified {len(recent_boards)} boards containing active updates.\n")
+        print(f"  [RESULT] Isolated down to {len(recent_boards)} active boards to process.\n")
     except Exception as e:
         print(f"🚨 Error inside extract_board_info: {e}")
     return recent_boards
+
 
 
 
