@@ -12,6 +12,7 @@ env:
 jobs:
   weekly-updates:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
     - name: Checkout code
