@@ -422,14 +422,18 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
             if not subject:
                 continue
 
-            # Parse date from container text nodes
-            last_post_date = None
+            # Parse date from container text nodes.
+            # SMF topic rows contain TWO dates: started date first, last-post date last.
+            # We collect ALL parseable dates and take the maximum (most recent), which
+            # is the last-post date — the one that matters for incremental filtering.
+            all_dates = []
             for text_node in container.strings:
                 text = text_node.strip()
                 if len(text) >= 6 and re.search(r'\d', text):
-                    last_post_date = parse_date_string(text)
-                    if last_post_date:
-                        break
+                    d = parse_date_string(text)
+                    if d:
+                        all_dates.append(d)
+            last_post_date = max(all_dates) if all_dates else None
 
             if topic_url not in [t['url'] for t in topics]:
                 topics.append({
@@ -560,12 +564,14 @@ async def _extract_topics_with_fallback(page, html, debug=False):
             container = container.parent
 
         if container:
+            all_dates = []
             for text_node in container.strings:
                 text = text_node.strip()
                 if len(text) >= 6 and re.search(r'\d', text):
-                    last_post_date = parse_date_string(text)
-                    if last_post_date:
-                        break
+                    d = parse_date_string(text)
+                    if d:
+                        all_dates.append(d)
+            last_post_date = max(all_dates) if all_dates else None
 
         extracted_fallback.append({
             'url': topic_url,
