@@ -314,11 +314,31 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
             }
             boards.append(board_info)
 
-            # SMF board index last-post dates can be years out of date due to caching.
-            # Board-level filtering is not reliable. Crawl all boards; topic-level
-            # date comparison is the precise gate.
-            recent_boards.append(board_info)
-            print(f"  [BOARD] Queued '{board_name}' (index date: {last_post_date or 'unknown'})")
+            if not latest_date_obj:
+                recent_boards.append(board_info)
+                print(f"  [BOARD] Including '{board_name}' (no cutoff date set)")
+                continue
+
+            if not last_post_date:
+                recent_boards.append(board_info)
+                print(f"  [BOARD] Including '{board_name}' (last-post date unparseable -- safe include)")
+                continue
+
+            try:
+                board_date = parser.parse(last_post_date)
+                target_date = (
+                    latest_date_obj
+                    if isinstance(latest_date_obj, datetime)
+                    else datetime.combine(latest_date_obj, datetime.min.time())
+                )
+                if board_date.date() >= target_date.date():
+                    recent_boards.append(board_info)
+                    print(f"  [BOARD] Including '{board_name}' -- index date {last_post_date} >= cutoff {target_date.date()}")
+                else:
+                    print(f"  [BOARD] Skipping  '{board_name}' -- index date {last_post_date} < cutoff {target_date.date()}")
+            except Exception as e:
+                recent_boards.append(board_info)
+                print(f"  [BOARD] Including '{board_name}' (date comparison error: {e} -- safe include)")
 
         print(f"\nTotal boards evaluated: {len(boards)}")
         print(f"Filtered down to {len(recent_boards)} active boards to crawl\n")
@@ -332,19 +352,26 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
 
 
 async def extract_topic_info(html: str, base_url: str, debug: bool = False):
-    """Robust topic extractor that scales to broad table/grid layouts."""
+    """
+    Extract topics from an SMF board page.
+
+    SMF renders each topic row with two links sharing the same topic ID:
+      1. topic,XXXX.0.html         -- the topic title link (no fragment)
+      2. topic,XXXX.0.html#msgNNNN -- the last-post jump link (has #msg fragment)
+
+    We keep them separate: the title link gives us the subject and canonical URL;
+    the #msg link's surrounding text gives us the last-post date.
+    """
     topics = []
     try:
         soup = BeautifulSoup(html, 'html.parser')
-        topic_link_pattern = re.compile(r'(topic[,=]\d+|\/topic\/\d+)', re.IGNORECASE)
+        topic_link_pattern = re.compile(r'topic[,=]\d+', re.IGNORECASE)
 
         all_links = soup.find_all('a')
         matched_links = [a for a in all_links if a.get('href') and topic_link_pattern.search(a['href'])]
-        # Right after matched_links is built
-        for a in matched_links[:5]:
-            print(f"  [HREF SAMPLE] {a.get('href', '')}")
+
         if len(matched_links) == 0:
-            print("\n🚨 [DIAGNOSTIC] No topics found. Checking for severe layout blocks...")
+            print("\n[DIAGNOSTIC] No topics found. Checking for severe layout blocks...")
             page_title = soup.title.string.strip() if soup.title else "No Title Tag"
             print(f"  -> Server Document Title: '{page_title}'")
             print(f"  -> HTML Length: {len(html)} characters")
@@ -352,18 +379,32 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
             print(f"  -> Page Context Text: {body_text}\n")
             return topics
 
-        topic_containers = {}
+        # Separate title links from last-post (#msg) links.
+        # title_links:    topic,XXXX.0.html           (no fragment)
+        # lastpost_links: topic,XXXX.0.html#msgNNNN   (has #msg fragment)
+        title_links = {}     # topic_id -> <a> tag
+        lastpost_links = {}  # topic_id -> <a> tag
+
         for a in matched_links:
             href = a.get('href', '')
             id_match = re.search(r'topic[,=](\d+)', href)
-            topic_id = id_match.group(1) if id_match else href.split('/')[-1]
-        
-            if not topic_id:
+            if not id_match:
                 continue
+            topic_id = id_match.group(1)
 
-            # Walk up to find the macro row container
-            container = a
-            current = a.parent
+            if '#msg' in href:
+                if topic_id not in lastpost_links:
+                    lastpost_links[topic_id] = a
+            else:
+                text = a.get_text(strip=True)
+                if text.lower() in ('last', 'first', 'next', 'prev', '', 'new') or text.isdigit():
+                    continue
+                if topic_id not in title_links or len(text) > len(title_links[topic_id].get_text(strip=True)):
+                    title_links[topic_id] = a
+
+        def find_row_container(a_tag):
+            """Walk up from a link to its enclosing topic row."""
+            current = a_tag.parent
             while current is not None:
                 if current.name in ('tr', 'li') or (
                     current.name == 'div' and any(
@@ -371,61 +412,62 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
                         for cls in ['row', 'topic', 'windowbg', 'boardindex']
                     )
                 ):
-                    container = current
-                    break
+                    return current
                 current = current.parent
+            return a_tag.parent.parent if a_tag.parent and a_tag.parent.parent else a_tag.parent
 
-            if container == a and a.parent:
-                container = a.parent.parent or a.parent
-
-            topic_containers[topic_id] = container
-
-        for topic_id, container in topic_containers.items():
-            subject = None
-            topic_url = None
-
-            for a in container.find_all('a'):
-                href = a.get('href', '')
-                if not href or any(x in href.lower() for x in ['profile', 'action=', 'last', 'new', 'gopost', 'msg', 'topicseen']):
-                    continue
-
-                text = a.get_text(strip=True)
-                if text.lower() in ('last', 'first', 'next', 'prev', '«', '»', '', 'new') or text.isdigit():
-                    continue
-
-                if subject is None or len(text) > len(subject):
-                    subject = text
-                    topic_url = href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
-
-            if not subject:
-                continue
-
-            # Parse date from container text nodes.
-            # SMF topic rows contain TWO dates: started date first, last-post date last.
-            # We collect ALL parseable dates and take the maximum (most recent), which
-            # is the last-post date — the one that matters for incremental filtering.
-            all_dates = []
+        def dates_from_container(container):
+            """Return all parseable dates found in a container's text nodes."""
+            dates = []
             for text_node in container.strings:
                 text = text_node.strip()
                 if len(text) >= 6 and re.search(r'\d', text):
                     d = parse_date_string(text)
                     if d:
-                        all_dates.append(d)
-            last_post_date = max(all_dates) if all_dates else None
+                        dates.append(d)
+            return dates
 
-            if topic_url not in [t['url'] for t in topics]:
-                topics.append({
-                    'url': topic_url,
-                    'subject': subject,
-                    'most_recent_date': last_post_date,
-                    'started_date': None
-                })
+        seen_urls = set()
+        for topic_id, title_a in title_links.items():
+            subject = title_a.get_text(strip=True)
+            href = title_a.get('href', '')
+            topic_url = href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+
+            if topic_url in seen_urls:
+                continue
+            seen_urls.add(topic_url)
+
+            # Get last-post date from the #msg link's container if available,
+            # otherwise fall back to max date in the title link's container.
+            last_post_date = None
+            if topic_id in lastpost_links:
+                msg_container = find_row_container(lastpost_links[topic_id])
+                msg_dates = dates_from_container(msg_container)
+                if msg_dates:
+                    last_post_date = max(msg_dates)
+
+            if not last_post_date:
+                title_container = find_row_container(title_a)
+                title_dates = dates_from_container(title_container)
+                if title_dates:
+                    last_post_date = max(title_dates)
+
+            if debug:
+                print(f"  [TOPIC] {subject[:50]} | last_post={last_post_date}")
+
+            topics.append({
+                'url': topic_url,
+                'subject': subject,
+                'most_recent_date': last_post_date,
+                'started_date': None
+            })
 
         print(f"  Successfully extracted {len(topics)} topics")
     except Exception as e:
         print(f"Extraction Error: {e}")
 
     return topics
+
 
 
 async def get_pagination_info(page):
@@ -490,13 +532,13 @@ async def navigate_to_specific_page(page, board_url, page_num):
         return False
 
 
-async def _extract_topics_with_fallback(page, html, debug=False):
+async def _extract_topics_with_fallback(page, html, base_url=None, debug=False):
     """
     Run extract_topic_info; if it returns nothing, apply a URL-regex fallback
     that also attempts to parse dates from each topic's container.
     Returns a list of topic dicts.
     """
-    page_topics = await extract_topic_info(html, BASE_URL, debug=debug)
+    page_topics = await extract_topic_info(html, base_url or BASE_URL, debug=debug)
 
     if page_topics:
         return page_topics
@@ -518,7 +560,7 @@ async def _extract_topics_with_fallback(page, html, debug=False):
         if ';topicseen' in href or '#msg' in href or 'msg' in href:
             continue
 
-        topic_url = href if href.startswith('http') else f"https://surfacehippy.info{href}"
+        topic_url = href if href.startswith('http') else f"{(base_url or BASE_URL).rstrip('/')}/{href.lstrip('/')}"
         topic_title = link.get_text(strip=True)
 
         if not topic_title or topic_url in seen_urls:
@@ -562,7 +604,7 @@ async def _extract_topics_with_fallback(page, html, debug=False):
     return extracted_fallback
 
 
-async def process_board(page, board, latest_date_obj, new_topics, debug=False):
+async def process_board(page, board, latest_date_obj, new_topics, actual_base_url=None, debug=False):
     try:
         print(f"\nProcessing board: {board['name']}")
         print(f"  URL: {board['url']}")
@@ -599,7 +641,7 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
                     break
                 html = await page.content()
 
-            page_topics = await _extract_topics_with_fallback(page, html, debug=debug)
+            page_topics = await _extract_topics_with_fallback(page, html, actual_base_url or BASE_URL, debug=debug)
             print(f"  Extracted {len(page_topics)} topics from page {page_num}")
 
             page_has_new_topics = False
@@ -709,11 +751,19 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
         await page.wait_for_load_state('networkidle', timeout=60000)
         html = await page.content()
 
-        recent_boards = await extract_board_info(html, BASE_URL, latest_date_obj)
+        # Capture the real base URL after any .info -> .net redirect
+        actual_url = page.url
+        from urllib.parse import urlparse
+        parsed = urlparse(actual_url)
+        actual_base_url = f"{parsed.scheme}://{parsed.netloc}/hiptalk"
+        if actual_base_url != BASE_URL:
+            print(f"[INFO] Redirected: {BASE_URL} -> {actual_base_url}")
+
+        recent_boards = await extract_board_info(html, actual_base_url, latest_date_obj)
         print(f"Processing {len(recent_boards)} boards with recent activity\n")
 
         for board in recent_boards:
-            await process_board(page, board, latest_date_obj, new_topics, debug=debug)
+            await process_board(page, board, latest_date_obj, new_topics, actual_base_url, debug=debug)
 
         await browser.close()
 
