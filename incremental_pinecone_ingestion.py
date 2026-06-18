@@ -340,7 +340,9 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
 
         all_links = soup.find_all('a')
         matched_links = [a for a in all_links if a.get('href') and topic_link_pattern.search(a['href'])]
-
+        # Right after matched_links is built
+        for a in matched_links[:5]:
+            print(f"  [HREF SAMPLE] {a.get('href', '')}")
         if len(matched_links) == 0:
             print("\n🚨 [DIAGNOSTIC] No topics found. Checking for severe layout blocks...")
             page_title = soup.title.string.strip() if soup.title else "No Title Tag"
@@ -355,7 +357,7 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
             href = a.get('href', '')
             id_match = re.search(r'topic[,=](\d+)', href)
             topic_id = id_match.group(1) if id_match else href.split('/')[-1]
-
+        
             if not topic_id:
                 continue
 
