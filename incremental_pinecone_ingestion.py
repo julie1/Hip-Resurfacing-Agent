@@ -314,35 +314,11 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
             }
             boards.append(board_info)
 
-            # --- FIX: restore safe fallback for unparseable dates ---
-            if not latest_date_obj:
-                # No cutoff at all — include everything
-                recent_boards.append(board_info)
-                print(f"  [BOARD] Including '{board_name}' (no cutoff date set)")
-                continue
-
-            if not last_post_date:
-                # Can't determine date — include to be safe rather than silently skip
-                recent_boards.append(board_info)
-                print(f"  [BOARD] Including '{board_name}' (last-post date unparseable — safe include)")
-                continue
-
-            try:
-                board_date = parser.parse(last_post_date)
-                target_date = (
-                    latest_date_obj
-                    if isinstance(latest_date_obj, datetime)
-                    else datetime.combine(latest_date_obj, datetime.min.time())
-                )
-                if board_date.date() >= target_date.date():
-                    recent_boards.append(board_info)
-                    print(f"  [BOARD] Including '{board_name}' — last post {last_post_date} >= cutoff {target_date.date()}")
-                else:
-                    print(f"  [BOARD] Skipping  '{board_name}' — last post {last_post_date} < cutoff {target_date.date()}")
-            except Exception as e:
-                # Date comparison failed — include to be safe
-                recent_boards.append(board_info)
-                print(f"  [BOARD] Including '{board_name}' (date comparison error: {e} — safe include)")
+            # SMF board index last-post dates can be years out of date due to caching.
+            # Board-level filtering is not reliable. Crawl all boards; topic-level
+            # date comparison is the precise gate.
+            recent_boards.append(board_info)
+            print(f"  [BOARD] Queued '{board_name}' (index date: {last_post_date or 'unknown'})")
 
         print(f"\nTotal boards evaluated: {len(boards)}")
         print(f"Filtered down to {len(recent_boards)} active boards to crawl\n")
@@ -589,26 +565,18 @@ async def process_board(page, board, latest_date_obj, new_topics, debug=False):
         print(f"\nProcessing board: {board['name']}")
         print(f"  URL: {board['url']}")
 
-        # Simulate human behaviour
-        await page.mouse.move(200, 300)
-        await page.mouse.move(500, 200)
-        await asyncio.sleep(random.uniform(2.0, 4.0))
+        # Single load per board -- we reuse the same warmed-up browser context
+        # so Cloudflare does not challenge us on every board navigation.
+        await page.mouse.move(random.randint(100, 600), random.randint(100, 500))
+        await asyncio.sleep(random.uniform(1.5, 3.0))
 
-        # First visit — lets Cloudflare complete any post-verification redirect
         await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        await asyncio.sleep(8.0)
-        await page.wait_for_load_state('networkidle')
-
-        # Second visit to get the actual board content
-        await page.goto(board['url'], timeout=60000, referer=BASE_URL)
-        await asyncio.sleep(random.uniform(3.5, 6.0))
-        await page.wait_for_load_state('domcontentloaded')
+        await page.wait_for_load_state('domcontentloaded', timeout=30000)
 
         try:
-            await page.wait_for_selector('a', timeout=15000)
+            await page.wait_for_selector('a', timeout=8000)
         except Exception:
             print("  [WARNING] Link elements took too long to appear. Proceeding anyway...")
-            await asyncio.sleep(5)
 
         html = await page.content()
         if debug:
