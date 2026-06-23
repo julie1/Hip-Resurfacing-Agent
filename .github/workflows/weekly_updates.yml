@@ -84,6 +84,7 @@ jobs:
         LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
         GROUPSIO_COOKIE: ${{ secrets.GROUPSIO_COOKIE }}
       run: |
+        set -o pipefail
         echo "Starting Pinecone incremental update..."
         python incremental_pinecone_ingestion.py --debug 2>&1 | tee pinecone_update.log
         echo "pinecone_status=success" >> $GITHUB_OUTPUT
@@ -127,6 +128,7 @@ jobs:
         LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
         LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
       run: |
+        set -o pipefail
         echo "Starting Qdrant incremental update..."
         python incremental_update_qdrant.py 2>&1 | tee qdrant_update.log
         echo "qdrant_status=success" >> $GITHUB_OUTPUT
@@ -156,6 +158,7 @@ jobs:
         QDRANT_URL: ${{ secrets.QDRANT_URL }}
         QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
       run: |
+        set -o pipefail
         echo "Running Qdrant keep-alive query..."
         python qdrant_keep_alive.py 2>&1 | tee keepalive.log
         echo "keepalive_status=success" >> $GITHUB_OUTPUT
