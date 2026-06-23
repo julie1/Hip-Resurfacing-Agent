@@ -396,7 +396,7 @@ async def process_chunks(chunks: List[str], url: str, topic_data: Dict,
 
 async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
     """Crawl multiple URLs in parallel using pre-crawled metadata."""
-     browser_config = BrowserConfig(
+    browser_config = BrowserConfig(
         headless=True,
         verbose=False,
         use_undetected_browser=True,   # <-- Patches Playwright binary automation signatures
