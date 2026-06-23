@@ -397,18 +397,12 @@ async def process_chunks(chunks: List[str], url: str, topic_data: Dict,
 async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
     """Crawl multiple URLs in parallel using pre-crawled metadata."""
     browser_config = BrowserConfig(
-        headless=True,
-        verbose=False,
-        use_undetected_browser=True,   # <-- Patches Playwright binary automation signatures
-        enable_stealth=True,          # <-- Clears navigator.webdriver flags
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
-    )
-    # browser_config = BrowserConfig(
-    #     headless=True,
-    #     verbose=False,
-    #     extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
-    # )
+    headless=True,
+    verbose=False,
+    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+)
+   
     crawl_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         magic=True,                   # <-- Mimics scrolling and natural human interactions
