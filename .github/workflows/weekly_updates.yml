@@ -129,7 +129,7 @@ jobs:
           GROUPSIO_COOKIE: ${{ secrets.GROUPSIO_COOKIE }}
         run: |
           echo "Starting Pinecone incremental update..."
-          python incremental_pinecone_ingestion.py --debug 2>&1 | tee pinecone_update.log
+          python -u incremental_pinecone_ingestion.py --debug 2>&1 | tee pinecone_update.log
           echo "pinecone_status=success" >> $GITHUB_OUTPUT
 
       - name: Upload debug HTML
