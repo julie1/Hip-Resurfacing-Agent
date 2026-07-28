@@ -12,7 +12,7 @@ env:
 jobs:
   weekly-updates:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
