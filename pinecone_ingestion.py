@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import json
 import asyncio
@@ -159,101 +160,103 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE) -> List[str]:
 
     return chunks
 
-import re
-from datetime import datetime
-from bs4 import BeautifulSoup
 
 async def extract_started_date(html: str) -> str:
     """
-    Extracts the 'Started by ...' date from Surface Hippy forum topic pages.
-    Example target:
-      <p>Started by ocwa80, October 09, 2025, 10:36:02 AM</p>
-    Returns: '2025-10-09' or None if not found.
+    Extracts the topic's opening-post date from Surface Hippy (SMF) forum topic pages.
+
+    Real posts are rendered as:
+      <div id="msgNNNN" class="windowbg"> ... <div class="postarea">
+        <div class="keyinfo"><div class="postinfo">
+          <a class="smalltext" href="....?msg=NNNN">July 22, 2026, 12:35:49 PM</a>
+
+    The page also contains a "Recent/Similar Topics" sidebar widget with its own
+    smalltext-dated spans (no href, wrapped in a <div id="blockNN"><table>...) that
+    must NOT be picked up -- those dates belong to unrelated topics.
+
+    Returns: '2026-07-22' or None if not found.
     """
     try:
         soup = BeautifulSoup(html, "html.parser")
 
-        # Find paragraph containing "Started by"
-        started_tag = soup.find("p", string=re.compile(r"Started by", re.I))
-        if not started_tag:
-            # Some pages might use slightly different structure, search fallback
-            started_tag = soup.find(
-                text=re.compile(r"Started by\s+.*,\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}", re.I)
-            )
+        date_pattern = re.compile(
+            r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+            r"\s+\d{1,2},\s+\d{4}(?:,\s*\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM))?"
+        )
 
-        if started_tag:
-            text = started_tag.get_text() if hasattr(started_tag, "get_text") else str(started_tag)
-            # Extract the full date portion
-            m = re.search(
-                r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}(?:,\s*\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM))?",
-                text
-            )
-            if m:
-                date_str = m.group(0)
-                for fmt in ("%B %d, %Y, %I:%M:%S %p", "%B %d, %Y"):
-                    try:
-                        dt = datetime.strptime(date_str, fmt)
-                        return dt.strftime("%Y-%m-%d")
-                    except Exception:
-                        continue
+        # Real posts are the only elements with id="msgNNNN"; document order == chronological,
+        # so the first one is the topic's opening post.
+        post_divs = soup.find_all("div", id=re.compile(r"^msg\d+$"))
 
-        print("⚠️ Could not find 'Started by' date pattern in topic page.")
+        if post_divs:
+            first_post = post_divs[0]
+            date_link = first_post.find("a", class_="smalltext")
+            if date_link:
+                text = date_link.get_text(" ", strip=True)
+                m = date_pattern.search(text)
+                if m:
+                    date_str = m.group(0)
+                    for fmt in ("%B %d, %Y, %I:%M:%S %p", "%B %d, %Y"):
+                        try:
+                            dt = datetime.strptime(date_str, fmt)
+                            return dt.strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
+
+        print("⚠️ Could not find topic starter post (no msg-id div/date anchor found).")
         return None
-
     except Exception as e:
         print(f"Error extracting started date: {e}")
         return None
-
 # async def extract_started_date(html: str) -> str:
-#     """Extract the started_date from the first message in a forum topic."""
+#     """
+#     Extracts the 'Started by ...' date from Surface Hippy forum topic pages.
+#     Example target:
+#     <p>Started by <a href="...">ocwa80</a>, October 09, 2025, 10:36:02 AM</p>
+#     Returns: '2025-10-09' or None if not found.
+#     """
 #     try:
-#         soup = BeautifulSoup(html, 'html.parser')
+#         soup = BeautifulSoup(html, "html.parser")
 #
-#         # First look for the specific format in this forum
-#         # Format: <div class="smalltext">« <strong> on:</strong> March 15, 2025, 11:24:52 AM »</div>
-#         on_pattern = soup.select('div.smalltext strong:contains("on:")')
-#         if on_pattern:
-#             for element in on_pattern:
-#                 parent = element.parent
-#                 if parent:
-#                     date_text = parent.text.strip()
-#                     # Extract date after "on:"
-#                     if "on:" in date_text:
-#                         date_part = date_text.split("on:")[1].strip()
-#                         # Now extract just the date portion before the time
-#                         if "," in date_part:
-#                             date_parts = date_part.split(',')
-#                             if len(date_parts) >= 2:
-#                                 # Combine month day and year
-#                                 date_str = date_parts[0] + "," + date_parts[1]
-#                                 try:
-#                                     date_obj = datetime.strptime(date_str.strip(), '%B %d, %Y')
-#                                     return date_obj.strftime('%Y-%m-%d')
-#                                 except Exception as e:
-#                                     print(f"Error parsing specific date format: {date_str} - {e}")
+#         date_pattern = re.compile(
+#             r"(January|February|March|April|May|June|July|August|September|October|November|December)"
+#             r"\s+\d{1,2},\s+\d{4}(?:,\s*\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM))?"
+#         )
 #
-#         # Fallback: Look for any text that matches date pattern using regex
-#         import re
-#         full_date_pattern = re.compile(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}')
+#         # Search every <p> tag's FULL text (get_text merges child tags like <a>),
+#         # instead of tag.string, which only matches a tag with a single text-node child.
+#         started_text = None
+#         for p in soup.find_all("p"):
+#             text = p.get_text(" ", strip=True)
+#             if re.search(r"Started by", text, re.I):
+#                 started_text = text
+#                 break
 #
-#         all_text = soup.text
-#         date_matches = full_date_pattern.findall(all_text)
+#         if not started_text:
+#             # Fallback: scan the whole page's merged text, not a single text node
+#             full_text = soup.get_text(" ", strip=True)
+#             m = re.search(r"Started by\s+.{0,80}?" + date_pattern.pattern, full_text, re.I)
+#             if m:
+#                 started_text = m.group(0)
 #
-#         if date_matches:
-#             # Search for the complete date string in the text
-#             complete_matches = re.findall(r'((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4})', all_text)
-#             if complete_matches:
-#                 try:
-#                     date_obj = datetime.strptime(complete_matches[0], '%B %d, %Y')
-#                     return date_obj.strftime('%Y-%m-%d')
-#                 except Exception as e:
-#                     print(f"Error parsing date match: {complete_matches[0]} - {e}")
+#         if started_text:
+#             m = date_pattern.search(started_text)
+#             if m:
+#                 date_str = m.group(0)
+#                 for fmt in ("%B %d, %Y, %I:%M:%S %p", "%B %d, %Y"):
+#                     try:
+#                         dt = datetime.strptime(date_str, fmt)
+#                         return dt.strftime("%Y-%m-%d")
+#                     except Exception:
+#                         continue
 #
-#         print(f"No valid date found in the page content")
+#         print("⚠️ Could not find 'Started by' date pattern in topic page.")
 #         return None
 #     except Exception as e:
 #         print(f"Error extracting started date: {e}")
 #         return None
+
+
 
 
 async def generate_summary(text: str, title: str, openai_client: AsyncOpenAI) -> str:
@@ -402,14 +405,14 @@ async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
 )
-   
+
     crawl_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         magic=True,                   # <-- Mimics scrolling and natural human interactions
         wait_until="networkidle",     # <-- Forces it to wait until Cloudflare redirect finishes
         page_timeout=60000            # <-- Gives Turnstile enough buffer time to settle
     )
-    
+
     #crawl_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
     chunk_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
     url_processor = PineconeURLProcessor()
