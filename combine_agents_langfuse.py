@@ -87,7 +87,6 @@ hip_rag_agent = Agent(
     system_prompt=system_prompt,
     deps_type=CombinedDeps,
     retries=2,
-    instrument=True
 )
 
 @hip_rag_agent.tool
