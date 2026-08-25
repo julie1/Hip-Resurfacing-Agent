@@ -10,7 +10,7 @@ import os
 import streamlit as st
 from pydantic import BaseModel
 from pydantic_ai import Agent, ModelRetry, RunContext
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from openai import AsyncOpenAI
 from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
@@ -32,7 +32,7 @@ langfuse_client = langfuse_config.langfuse
 
 
 llm = os.getenv('LLM_MODEL', 'gpt-4o-mini')
-model = OpenAIModel(llm)
+model = OpenAIChatModel(llm)
 
 
 logfire.configure(send_to_logfire='if-token-present')
