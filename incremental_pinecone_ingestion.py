@@ -829,7 +829,8 @@ async def main():
             print(f"python updated_pinecone_ingestion.py --input {output_file}")
     else:
         print("No new topics found. Database is up to date.")
-
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        save_latest_date(today_str)
 
 if __name__ == "__main__":
     try:
