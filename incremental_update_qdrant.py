@@ -346,6 +346,8 @@ async def main():
             print("python qdrant_ingestion.py --input new_topic_data.json")
     else:
         print("No new topics found. Database is up to date.")
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        save_latest_date(today_str)
 
 if __name__ == "__main__":
     if __name__ == "__main__":
