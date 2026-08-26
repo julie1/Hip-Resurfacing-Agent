@@ -53,6 +53,12 @@ jobs:
           restore-keys: |
             qdrant-state-
 
+      - name: Seed Qdrant state if no cache found
+        if: steps.cache-qdrant.outputs.cache-hit != 'true'
+        run: |
+          echo '{"latest_date": "2026-08-25", "updated_at": "seeded manually"}' > qdrant_latest_date.json
+          echo "Seeded qdrant_latest_date.json with 2026-08-25 (no cache was found)"
+
       - name: Check cached Qdrant state
         run: |
           if [ -f qdrant_latest_date.json ]; then
@@ -104,6 +110,12 @@ jobs:
           key: pinecone-state-${{ github.run_number }}
           restore-keys: |
             pinecone-state-
+
+      - name: Seed Pinecone state if no cache found
+        if: steps.cache-pinecone.outputs.cache-hit != 'true'
+        run: |
+          echo '{"latest_date": "2026-08-25", "updated_at": "seeded manually"}' > pinecone_latest_date.json
+          echo "Seeded pinecone_latest_date.json with 2026-08-25 (no cache was found)"
 
       - name: Check cached Pinecone state
         run: |
