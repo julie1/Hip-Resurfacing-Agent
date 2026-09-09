@@ -31,7 +31,27 @@ def save_latest_date(date_str):
         json.dump({'latest_date': date_str, 'updated_at': datetime.now().isoformat()}, f, indent=2)
     print(f"Saved latest date to state file: {date_str}")
 
+STATE_TRACKER_ID = "STATE_TRACKER_LATEST_DATE"
 
+def upsert_latest_date_tracker(date_str):
+    """Upsert a single dedicated tracking vector so state recovery is a
+    single fetch instead of downloading the whole index."""
+    try:
+        index = pc.Index(INDEX_NAME)
+        upsert_params = {
+            'vectors': [{
+                'id': STATE_TRACKER_ID,
+                'values': [0.0] * 1536,
+                'metadata': {'latest_date': date_str}
+            }]
+        }
+        if NAMESPACE and NAMESPACE.strip():
+            upsert_params['namespace'] = NAMESPACE
+        index.upsert(**upsert_params)
+        print(f"Updated Pinecone state tracker: {date_str}")
+    except Exception as e:
+        print(f"Warning: failed to update Pinecone state tracker: {e}")
+        
 def load_latest_date():
     """Load latest date from state file."""
     if os.path.exists(STATE_FILE):
