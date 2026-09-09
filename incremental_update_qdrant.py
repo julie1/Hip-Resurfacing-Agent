@@ -39,7 +39,27 @@ def save_latest_date(date_str):
         print(f"\n✓ Saved latest date to state file: {date_str}")
     except Exception as e:
         print(f"\n✗ Error saving state file: {e}")
+        
+STATE_TRACKER_ID = "00000000-0000-0000-0000-000000000001"
 
+def upsert_latest_date_tracker(date_str):
+    """Upsert a single dedicated tracking point so state recovery is a
+    single retrieve() instead of scrolling the whole collection."""
+    try:
+        client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=[
+                models.PointStruct(
+                    id=STATE_TRACKER_ID,
+                    vector=[0.0] * 1536,
+                    payload={"latest_date": date_str, "is_state_tracker": True}
+                )
+            ]
+        )
+        print(f"Updated Qdrant state tracker: {date_str}")
+    except Exception as e:
+        print(f"Warning: failed to update Qdrant state tracker: {e}")
+        
 def load_latest_date():
     """Load latest date from state file."""
     if os.path.exists(STATE_FILE):
@@ -92,43 +112,54 @@ def extract_and_save_latest_date(topics):
         print(f"   URL:  {newest_url}")
         print(f"{'='*70}")
         save_latest_date(newest_str)
+        upsert_latest_date_tracker(newest_str)
     else:
         print("⚠️  No valid dates found in topics")
 
 
 
-async def get_latest_date_from_qdrant():
-    """Retrieve the latest date from Qdrant database."""
+async def _full_scan_latest_date_from_qdrant():
+    """Retrieve the latest date from Qdrant database by scrolling all payloads.
+    SLOW for large collections. Only used as a one-time fallback if the tracker point doesn't exist yet."""
     try:
         collection_info = client.get_collection(collection_name=COLLECTION_NAME)
         print(f"Collection: {COLLECTION_NAME}")
         print(f"Total points: {collection_info.points_count}")
 
         # Get all records with payload containing most_recent_date
-        results = client.scroll(
-            collection_name=COLLECTION_NAME,
-            limit=30000,  # Adjust based on your collection size
-            with_payload=["most_recent_date", "url"],
-            with_vectors=False,
-        )
+        latest_date = None
+        latest_url = None
+        next_offset = None
+        total_scanned = 0
 
-        if results[0]:
-            # Find the point with the latest date manually
-            latest_date = None
-            latest_url = None
+        while True:
+            points, next_offset = client.scroll(
+                collection_name=COLLECTION_NAME,
+                limit=1000,
+                offset=next_offset,
+                with_payload=["most_recent_date", "url"],
+                with_vectors=False,
+            )
+            total_scanned += len(points)
 
-            for point in results[0]:
+        for point in points:
+            
                 date_str = point.payload.get("most_recent_date")
                 if not date_str:
                     continue
 
                 try:
-                    date = parser.parse(date_str)
+                    date = parser.parse(date_str)                    
                     if latest_date is None or date > latest_date:
                         latest_date = date
                         latest_url = point.payload.get("url")
                 except Exception as e:
                     print(f"Error parsing date {date_str}: {e}")
+                    
+            if next_offset is None:
+                break
+
+        print(f"Scanned {total_scanned} points total")
 
             if latest_date:
                 latest_date_str = latest_date.strftime('%Y-%m-%d')
@@ -138,9 +169,7 @@ async def get_latest_date_from_qdrant():
             else:
                 print("No valid dates found in Qdrant.")
                 return None
-        else:
-            print("No records found in Qdrant.")
-            return None
+        
     except Exception as e:
         print(f"Error getting latest date from Qdrant: {e}")
         return None
