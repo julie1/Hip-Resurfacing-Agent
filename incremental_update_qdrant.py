@@ -126,7 +126,6 @@ async def _full_scan_latest_date_from_qdrant():
         print(f"Collection: {COLLECTION_NAME}")
         print(f"Total points: {collection_info.points_count}")
 
-        # Get all records with payload containing most_recent_date
         latest_date = None
         latest_url = None
         next_offset = None
@@ -142,37 +141,36 @@ async def _full_scan_latest_date_from_qdrant():
             )
             total_scanned += len(points)
 
-        for point in points:
-            
+            for point in points:
                 date_str = point.payload.get("most_recent_date")
                 if not date_str:
                     continue
-
                 try:
-                    date = parser.parse(date_str)                    
+                    date = parser.parse(date_str)
                     if latest_date is None or date > latest_date:
                         latest_date = date
                         latest_url = point.payload.get("url")
                 except Exception as e:
                     print(f"Error parsing date {date_str}: {e}")
-                    
+
             if next_offset is None:
                 break
 
         print(f"Scanned {total_scanned} points total")
 
-            if latest_date:
-                latest_date_str = latest_date.strftime('%Y-%m-%d')
-                print(f"Latest date in Qdrant: {latest_date_str}")
-                print(f"URL with latest date: {latest_url}")
-                return latest_date_str
-            else:
-                print("No valid dates found in Qdrant.")
-                return None
-        
+        if latest_date:
+            latest_date_str = latest_date.strftime('%Y-%m-%d')
+            print(f"Latest date in Qdrant: {latest_date_str}")
+            print(f"URL with latest date: {latest_url}")
+            return latest_date_str
+        else:
+            print("No valid dates found in Qdrant.")
+            return None
+
     except Exception as e:
         print(f"Error getting latest date from Qdrant: {e}")
         return None
+
 
 async def extract_topic_info(html: str, base_group_url: str):
     """Extract topic URLs, subjects, and dates from a page."""
