@@ -188,8 +188,8 @@ jobs:
         run: |
           echo "One or more steps failed"
           exit 1
-     
-       - name: Open issue on failure or timeout
+
+      - name: Open issue on failure or timeout
         if: failure() || cancelled()
         uses: actions/github-script@v7
         with:
