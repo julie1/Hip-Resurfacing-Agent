@@ -79,12 +79,41 @@ def extract_and_save_latest_date(topics):
         print(f"   URL:  {newest_url}")
         print(f"{'='*70}")
         save_latest_date(newest_str)
+        upsert_latest_date_tracker(newest_str)
+        
     else:
         print("⚠️  No valid dates found in topics")
 
-
 async def get_latest_date_from_pinecone():
-    """Retrieve the latest date from Pinecone database using list() for serverless indexes."""
+    """Fast path: fetch the single dedicated tracker vector by ID.
+    Falls back to a one-time full index scan only if the tracker doesn't exist yet."""
+    try:
+        index = pc.Index(INDEX_NAME)
+        fetch_params = {'ids': [STATE_TRACKER_ID]}
+        if NAMESPACE and NAMESPACE.strip():
+            fetch_params['namespace'] = NAMESPACE
+        result = index.fetch(**fetch_params)
+        vectors = result.vectors if hasattr(result, 'vectors') else result.get('vectors', {})
+        if STATE_TRACKER_ID in vectors:
+            metadata = vectors[STATE_TRACKER_ID].metadata
+            latest_date_str = metadata.get('latest_date')
+            if latest_date_str:
+                print(f"Latest date from state tracker: {latest_date_str}")
+                return latest_date_str
+        print("No state tracker found yet -- falling back to one-time full index scan...")
+        result = await _full_scan_latest_date_from_pinecone()
+        if result:
+            upsert_latest_date_tracker(result)  # create the tracker so next time is fast
+        return result
+    except Exception as e:
+        print(f"Error getting latest date from Pinecone: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+        
+async def _full_scan_latest_date_from_pinecone():
+    """Retrieve the latest date from Pinecone database using list() for serverless indexes.
+    SLOW - full index download. Only used as a one-time fallback if the tracker vector doesn't exist yet."""
     try:
         index = pc.Index(INDEX_NAME)
         print(f"Connected to index: {INDEX_NAME}")
@@ -831,6 +860,8 @@ async def main():
         print("No new topics found. Database is up to date.")
         today_str = datetime.now().strftime('%Y-%m-%d')
         save_latest_date(today_str)
+        upsert_latest_date_tracker(today_str)
+    
 
 if __name__ == "__main__":
     try:
