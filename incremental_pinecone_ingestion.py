@@ -41,10 +41,17 @@ def upsert_latest_date_tracker(date_str):
         upsert_params = {
             'vectors': [{
                 'id': STATE_TRACKER_ID,
-                'values': [0.0] * 1536,
-                'metadata': {'latest_date': date_str}
+                'values': [1.0] + [0.0] * 1535,   # Pinecone requires at least one non-zero value
+                'metadata': {'type': 'state', 'latest_date': date_str}
             }]
         }
+        # upsert_params = {
+        #     'vectors': [{
+        #         'id': STATE_TRACKER_ID,
+        #         'values': [0.0] * 1536,
+        #         'metadata': {'latest_date': date_str}
+        #     }]
+        # }
         if NAMESPACE and NAMESPACE.strip():
             upsert_params['namespace'] = NAMESPACE
         index.upsert(**upsert_params)
