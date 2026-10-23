@@ -20,7 +20,7 @@ pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 INDEX_NAME = "forum-pages"
 NAMESPACE = "hip-forum"
 # Forum configuration  (moved to .net after hack)
-BASE_URL = "https://surfacehippy.info/hiptalk"
+BASE_URL = "https://surfacehippy.net/hiptalk"   # was .info, which redirects locally but not from GitHub runners
 
 STATE_FILE = 'pinecone_latest_date.json'
 
@@ -837,6 +837,10 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
         title = (await page.title()).lower()
         if "just a moment" in title or "attention required" in title:
             CRAWL_PROBLEMS.append(f"Cloudflare challenge on index page (title: {title!r})")
+        # Always log what the index page really was, so a failed run explains itself
+        print(f"[INFO] Index page url={page.url} title={title!r}")
+        print(f"[INFO] Index page text: "
+              f"{' '.join(BeautifulSoup(html, 'html.parser').get_text().split())[:300]}")
 
         # Capture the real base URL after any .info -> .net redirect
         actual_url = page.url
