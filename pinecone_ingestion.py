@@ -293,13 +293,24 @@ Focus on what makes THIS post unique and valuable, not generic forum information
 
 
 
+CHALLENGE_MARKERS = ("just a moment", "verify you are human",
+                     "enable javascript and cookies", "checking your browser",
+                     "attention required")
+
+
+def looks_blocked(content: str) -> bool:
+    """True if the crawled text looks like a Cloudflare/bot-challenge page."""
+    head = content[:1500].lower()
+    return any(m in head for m in CHALLENGE_MARKERS)
+
+
 async def process_url(topic: Dict,
                       openai_client: AsyncOpenAI,
                       url_processor: PineconeURLProcessor,
                       chunk_semaphore: asyncio.Semaphore,
                       browser_config: BrowserConfig,
-                      crawl_config: CrawlerRunConfig):
-    """Process a single URL with its metadata."""
+                      crawl_config: CrawlerRunConfig) -> bool:
+    """Process a single URL. Returns True only if every chunk was stored."""
     url = topic['url']
     title = topic.get('subject', 'Unknown Topic')  # Get the title from topic data
     crawler = AsyncWebCrawler(config=browser_config)
@@ -308,50 +319,54 @@ async def process_url(topic: Dict,
         await crawler.start()
         result = await crawler.arun(url=url, config=crawl_config, session_id="session1")
 
-        if result.success:
-            content = result.markdown.raw_markdown
-            chunks = chunk_text(content)
-
-            # Extract the started_date from the HTML
-            started_date = await extract_started_date(result.html)
-            if not started_date:
-                print(f"Warning: Could not extract started_date for {url}")
-                started_date = "unknown"
-            else:
-                print(f"Extracted started_date: {started_date} for {url}")
-
-            if chunks:
-                # Generate summary once for all chunks - NOW WITH TITLE CONTEXT
-                summary = await generate_summary(content, title, openai_client)
-                print(f"\nProcessing {url}")
-                print(f"Title: {title}")
-                print(f"Generated summary: {summary}")
-
-                await process_chunks(chunks, url, topic, summary, started_date,
-                                   openai_client, url_processor,
-                                   chunk_semaphore)
-            else:
-                print(f"No content found for {url}")
-        else:
+        if not result.success:
             print(f"Failed to crawl: {url} - Error: {result.error_message}")
+            return False
+
+        content = result.markdown.raw_markdown
+        if looks_blocked(content):
+            print(f"⚠️ Challenge/blocked page returned for {url}")
+            return False
+
+        chunks = chunk_text(content)
+        if not chunks:
+            print(f"No content found for {url}")
+            return False
+
+        # Extract the started_date from the HTML
+        started_date = await extract_started_date(result.html)
+        if not started_date:
+            print(f"Warning: Could not extract started_date for {url}")
+            started_date = "unknown"
+        else:
+            print(f"Extracted started_date: {started_date} for {url}")
+
+        # Generate summary once for all chunks - NOW WITH TITLE CONTEXT
+        summary = await generate_summary(content, title, openai_client)
+        print(f"\nProcessing {url}")
+        print(f"Title: {title}")
+        print(f"Generated summary: {summary}")
+
+        return await process_chunks(chunks, url, topic, summary, started_date,
+                                    openai_client, url_processor,
+                                    chunk_semaphore)
 
     except Exception as e:
         print(f"Error processing {url}: {e}")
+        return False
     finally:
         await crawler.close()
 
 
 async def process_chunks(chunks: List[str], url: str, topic_data: Dict,
-                        summary: str, started_date: str, openai_client: AsyncOpenAI,
-                        url_processor: PineconeURLProcessor,
-                        chunk_semaphore: asyncio.Semaphore):
-    """Process all chunks for a URL with the same summary."""
-    processed_chunks = await url_processor.get_processed_chunks(url)
+                         summary: str, started_date: str, openai_client: AsyncOpenAI,
+                         url_processor: PineconeURLProcessor,
+                         chunk_semaphore: asyncio.Semaphore) -> bool:
+    """Upsert every chunk for a URL. IDs are md5(url_chunk), so re-upserting
+    overwrites safely (this also refreshes threads that got new replies).
+    Returns True only if all chunks were stored."""
 
-    async def process_single_chunk(chunk: str, chunk_number: int):
-        if chunk_number in processed_chunks:
-            return
-
+    async def process_single_chunk(chunk: str, chunk_number: int) -> bool:
         async with chunk_semaphore:
             try:
                 # Get embedding
@@ -379,32 +394,31 @@ async def process_chunks(chunks: List[str], url: str, topic_data: Dict,
                     embedding=embedding
                 )
 
-                await url_processor.insert_chunk(processed)
-                print(f"Processed chunk {chunk_number}/{len(chunks)} for {url}")
+                ok = await url_processor.insert_chunk(processed)
+                if ok:
+                    print(f"Processed chunk {chunk_number}/{len(chunks)} for {url}")
                 await asyncio.sleep(0.5)
+                return bool(ok)
             except Exception as e:
                 print(f"Error processing chunk {chunk_number} for {url}: {e}")
+                return False
 
-    tasks = []
-    for i, chunk in enumerate(chunks):
-        if i not in processed_chunks:
-            tasks.append(process_single_chunk(chunk, i))
-
-    if tasks:
-        print(f"Processing {len(tasks)} remaining chunks for {url}")
-        await asyncio.gather(*tasks)
-    else:
-        print(f"All chunks already processed for {url}")
+    print(f"Processing {len(chunks)} chunks for {url}")
+    results = await asyncio.gather(
+        *[process_single_chunk(c, i) for i, c in enumerate(chunks)]
+    )
+    return all(results)
 
 
 async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
-    """Crawl multiple URLs in parallel using pre-crawled metadata."""
+    """Crawl multiple URLs in parallel using pre-crawled metadata.
+    Returns a list of URLs that failed to ingest (empty list = all succeeded)."""
     browser_config = BrowserConfig(
-    headless=True,
-    verbose=False,
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
-)
+        headless=True,
+        verbose=False,
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+    )
 
     crawl_config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
@@ -413,22 +427,22 @@ async def crawl_parallel(topic_data: List[Dict], openai_client: AsyncOpenAI):
         page_timeout=60000            # <-- Gives Turnstile enough buffer time to settle
     )
 
-    #crawl_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS)
     chunk_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
     url_processor = PineconeURLProcessor()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CRAWLS)
+    failed: List[str] = []
 
     async def process_with_semaphore(topic):
         async with semaphore:
-            # Use the global process_url() that handles title, started_date, etc.
-            await process_url(topic, openai_client, url_processor, chunk_semaphore,
-                              browser_config, crawl_config)
+            ok = await process_url(topic, openai_client, url_processor, chunk_semaphore,
+                                   browser_config, crawl_config)
+            if not ok:
+                failed.append(topic['url'])
             await asyncio.sleep(1)  # Simple rate limiting
 
-    # Now create tasks *after* defining the helper function
     tasks = [process_with_semaphore(topic) for topic in topic_data]
     await asyncio.gather(*tasks)
-
+    return failed
 
 
 async def main():
@@ -444,7 +458,12 @@ async def main():
         print(f"Error loading surfacehippy_topics.json: {e}")
         return
 
-    await crawl_parallel(topic_data, openai_client)
+    failed = await crawl_parallel(topic_data, openai_client)
+    if failed:
+        print(f"Ingestion finished with {len(failed)} failed topics:")
+        for u in failed:
+            print("   ", u)
+        sys.exit(1)
     print("Ingestion process completed")
 
 if __name__ == "__main__":
