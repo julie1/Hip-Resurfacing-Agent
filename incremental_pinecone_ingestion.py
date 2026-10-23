@@ -24,6 +24,9 @@ BASE_URL = "https://surfacehippy.info/hiptalk"
 
 STATE_FILE = 'pinecone_latest_date.json'
 
+CRAWL_PROBLEMS = []
+STATS = {"topics": 0, "undated": 0}
+
 
 def save_latest_date(date_str):
     """Save latest date to state file."""
@@ -58,7 +61,7 @@ def upsert_latest_date_tracker(date_str):
         print(f"Updated Pinecone state tracker: {date_str}")
     except Exception as e:
         print(f"Warning: failed to update Pinecone state tracker: {e}")
-        
+
 def load_latest_date():
     """Load latest date from state file."""
     if os.path.exists(STATE_FILE):
@@ -107,7 +110,7 @@ def extract_and_save_latest_date(topics):
         print(f"{'='*70}")
         save_latest_date(newest_str)
         upsert_latest_date_tracker(newest_str)
-        
+
     else:
         print("⚠️  No valid dates found in topics")
 
@@ -137,7 +140,7 @@ async def get_latest_date_from_pinecone():
         import traceback
         traceback.print_exc()
         return None
-        
+
 async def _full_scan_latest_date_from_pinecone():
     """Retrieve the latest date from Pinecone database using list() for serverless indexes.
     SLOW - full index download. Only used as a one-time fallback if the tracker vector doesn't exist yet."""
@@ -295,6 +298,8 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
         if not board_links:
             board_links = soup.find_all('a', href=re.compile(r'board,\d+', re.I))
             board_links = [a for a in board_links if len(a.get_text(strip=True)) > 4]
+        if not board_links:
+            CRAWL_PROBLEMS.append("no board links found on index page")
 
         def extract_date_from_lastpost_p(p_tag):
             """Pull the date text node that immediately follows <strong>Last post:</strong>."""
@@ -336,6 +341,12 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
               f"{len(lastpost_p_tags)} lastpost <p> tags, "
               f"{len(lastpost_divs)} lastpost <div> tags")
 
+        # Dates are matched to boards by position, which is only safe if the counts agree.
+        p_aligned = len(lastpost_p_tags) == len(board_links)
+        div_aligned = len(lastpost_divs) == len(board_links)
+        if not p_aligned and not div_aligned:
+            print("  [WARNING] board/last-post counts differ; ignoring index dates and crawling every board")
+
         for i, board_link in enumerate(board_links):
             board_name = board_link.get_text(strip=True)
             board_url = board_link.get('href', '')
@@ -349,11 +360,11 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
             last_post_date = None
 
             # Try new-style <p> tags first (index-matched)
-            if i < len(lastpost_p_tags):
+            if p_aligned and i < len(lastpost_p_tags):
                 last_post_date = extract_date_from_lastpost_p(lastpost_p_tags[i])
 
             # Fall back to old <div class="lastpost"> approach
-            if not last_post_date and i < len(lastpost_divs):
+            if div_aligned and not last_post_date and i < len(lastpost_divs):
                 p_tag = lastpost_divs[i].find('p')
                 if p_tag:
                     last_post_date = extract_date_from_lastpost_p(p_tag)
@@ -405,6 +416,13 @@ async def extract_board_info(html: str, base_url: str, latest_date_obj=None):
         traceback.print_exc()
 
     return recent_boards
+
+
+def canonical_topic_url(url: str) -> str:
+    """topic,7250.msg63929/topicseen.html#new -> .../topic,7250.0.html (page 1 of the topic).
+    Vector IDs are md5(url + chunk number), so the URL must not change between runs."""
+    m = re.match(r'^(.*?topic,\d+)\.', url)
+    return f"{m.group(1)}.0.html" if m else url
 
 
 async def extract_topic_info(html: str, base_url: str, debug: bool = False):
@@ -487,7 +505,8 @@ async def extract_topic_info(html: str, base_url: str, debug: bool = False):
         for topic_id, title_a in title_links.items():
             subject = title_a.get_text(strip=True)
             href = title_a.get('href', '')
-            topic_url = href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+            topic_url = canonical_topic_url(
+                href if href.startswith('http') else f"{base_url.rstrip('/')}/{href.lstrip('/')}")
 
             if topic_url in seen_urls:
                 continue
@@ -616,7 +635,8 @@ async def _extract_topics_with_fallback(page, html, base_url=None, debug=False):
         if ';topicseen' in href or '#msg' in href or 'msg' in href:
             continue
 
-        topic_url = href if href.startswith('http') else f"{(base_url or BASE_URL).rstrip('/')}/{href.lstrip('/')}"
+        topic_url = canonical_topic_url(
+            href if href.startswith('http') else f"{(base_url or BASE_URL).rstrip('/')}/{href.lstrip('/')}")
         topic_title = link.get_text(strip=True)
 
         if not topic_title or topic_url in seen_urls:
@@ -693,12 +713,16 @@ async def process_board(page, board, latest_date_obj, new_topics, actual_base_ur
             if page_num > 1:
                 success = await navigate_to_specific_page(page, board['url'], page_num)
                 if not success:
+                    CRAWL_PROBLEMS.append(f"{board['name']}: navigation to page {page_num} failed")
                     print(f"  Failed to navigate to page {page_num}, stopping")
                     break
                 html = await page.content()
 
             page_topics = await _extract_topics_with_fallback(page, html, actual_base_url or BASE_URL, debug=debug)
             print(f"  Extracted {len(page_topics)} topics from page {page_num}")
+            if not page_topics:
+                CRAWL_PROBLEMS.append(f"{board['name']} page {page_num}: 0 topics parsed")
+            STATS["topics"] += len(page_topics)
 
             page_has_new_topics = False
             for topic in page_topics:
@@ -712,12 +736,14 @@ async def process_board(page, board, latest_date_obj, new_topics, actual_base_ur
                         page_has_new_topics = True
                         print(f"    [NEW] '{topic['subject'][:60]}' (no date, no cutoff)")
                     else:
+                        STATS["undated"] += 1
                         print(f"    [SKIP] '{topic['subject'][:60]}' (no date, skipping to avoid duplicates)")
                     continue
 
                 try:
                     topic_date = parser.parse(most_recent)
                 except Exception:
+                    STATS["undated"] += 1
                     print(f"    [SKIP] '{topic['subject'][:60]}' (unparseable date: {most_recent})")
                     continue
 
@@ -736,13 +762,14 @@ async def process_board(page, board, latest_date_obj, new_topics, actual_base_ur
 
     except Exception as e:
         print(f"Error processing board {board['name']}: {e}")
+        CRAWL_PROBLEMS.append(f"{board['name']}: {e}")
         import traceback
         traceback.print_exc()
 
 
 async def crawl_new_content(latest_date_in_pinecone, debug=False):
     """Crawl forum boards and topics newer than the latest date in Pinecone."""
-    latest_date_obj = parser.parse(latest_date_in_pinecone) if latest_date_in_pinecone else None
+    latest_date_obj = (parser.parse(latest_date_in_pinecone) - timedelta(days=2)) if latest_date_in_pinecone else None    
     new_topics = []
 
     async with async_playwright() as p:
@@ -807,6 +834,10 @@ async def crawl_new_content(latest_date_in_pinecone, debug=False):
         await page.wait_for_load_state('networkidle', timeout=60000)
         html = await page.content()
 
+        title = (await page.title()).lower()
+        if "just a moment" in title or "attention required" in title:
+            CRAWL_PROBLEMS.append(f"Cloudflare challenge on index page (title: {title!r})")
+
         # Capture the real base URL after any .info -> .net redirect
         actual_url = page.url
         from urllib.parse import urlparse
@@ -839,6 +870,12 @@ async def main():
         if latest_date:
             save_latest_date(latest_date)
 
+    # Manual backfill: re-crawl from an explicit date without touching saved state
+    override = os.environ.get("SINCE_DATE_OVERRIDE", "").strip()
+    if override:
+        latest_date = override
+        print(f"⚠️ Backfill mode: using override date {override}")
+
     if latest_date:
         print(f"Running incremental update from {latest_date}")
     else:
@@ -848,9 +885,23 @@ async def main():
     new_topics = await crawl_new_content(latest_date, debug=debug)
     end_time = time.time()
 
+    healthy = not CRAWL_PROBLEMS and not (
+        STATS["topics"] and STATS["undated"] / STATS["topics"] > 0.2)
+    if not healthy:
+        print("⚠️ Crawl problems detected:")
+        for prob in CRAWL_PROBLEMS:
+            print("  ", prob)
+        print(f"   undated topics: {STATS['undated']}/{STATS['topics']}")
+
     print(f"\n{'='*60}")
     print(f"Found {len(new_topics)} new topics in {end_time - start_time:.2f} seconds")
     print(f"{'='*60}\n")
+
+    if '--dry-run' in sys.argv:
+        print("Dry run: skipping ingestion and state updates.")
+        for t in new_topics:
+            print(f"  {t.get('most_recent_date')}  {t['subject'][:70]}  {t['url']}")
+        return
 
     if new_topics:
         output_file = 'new_topic_surface_hippy.json'
@@ -874,21 +925,31 @@ async def main():
         print("\nRunning ingestion script...")
         try:
             from pinecone_ingestion import setup_clients, crawl_parallel
-
-            openai_client = await setup_clients()
-            await crawl_parallel(new_topics, openai_client)
-
-            print("\nIngestion completed!")
-            extract_and_save_latest_date(new_topics)
         except ImportError:
             print(f"\nRun ingestion manually:")
             print(f"python updated_pinecone_ingestion.py --input {output_file}")
+            healthy = False
+        else:
+            openai_client = await setup_clients()
+            failed = await crawl_parallel(new_topics, openai_client)
+            if failed:
+                healthy = False
+                print(f"\n❌ {len(failed)} topics failed to ingest; NOT advancing state:")
+                for u in failed:
+                    print("   ", u)
+            else:
+                print("\nIngestion completed!")
+                if healthy:
+                    extract_and_save_latest_date(new_topics)
     else:
-        print("No new topics found. Database is up to date.")
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        save_latest_date(today_str)
-        upsert_latest_date_tracker(today_str)
-    
+        print("No new topics found.")
+        if healthy and latest_date and not override:
+            save_latest_date(latest_date)   # refreshes the cache; does NOT advance the cutoff
+
+    if not healthy:
+        raise RuntimeError("Crawl/ingestion problems detected; state date not advanced")
+
+
 
 if __name__ == "__main__":
     try:
