@@ -11,6 +11,10 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+  issues: write   # needed by the "Open issue on failure" step
+
 env:
   PYTHON_VERSION: '3.12'
 
