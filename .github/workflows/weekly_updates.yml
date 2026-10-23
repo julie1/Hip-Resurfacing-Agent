@@ -5,14 +5,19 @@ on:
     # Run every Monday at 10 AM UTC
     - cron: '0 10 * * 1'
   workflow_dispatch: # Allows manual triggering for testing
+    inputs:
+      since_date:
+        description: "Pinecone backfill: re-crawl topics newer than this date (YYYY-MM-DD). Leave blank for a normal run."
+        required: false
+        default: ""
 
 env:
   PYTHON_VERSION: '3.12'
 
 jobs:
   weekly-updates:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -74,6 +79,7 @@ jobs:
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+          GROUPSIO_COOKIE: ${{ secrets.GROUPSIO_COOKIE }}
         run: |
           set -o pipefail
           echo "Starting Qdrant incremental update..."
@@ -100,6 +106,7 @@ jobs:
 
       - name: Restore Pinecone state cache
         id: cache-pinecone
+        if: always()
         uses: actions/cache/restore@v5
         with:
           path: pinecone_latest_date.json
@@ -108,6 +115,7 @@ jobs:
             pinecone-state-
 
       - name: Check cached Pinecone state
+        if: always()
         run: |
           if [ -f pinecone_latest_date.json ]; then
             echo "✓ Pinecone state cache found"
@@ -129,6 +137,7 @@ jobs:
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
           GROUPSIO_COOKIE: ${{ secrets.GROUPSIO_COOKIE }}
+          SINCE_DATE_OVERRIDE: ${{ github.event.inputs.since_date }}
         run: |
           set -o pipefail
           echo "Starting Pinecone incremental update..."
@@ -147,13 +156,13 @@ jobs:
 
       - name: Save Pinecone state cache
         uses: actions/cache/save@v5
-        if: steps.pinecone.outputs.pinecone_status == 'success'
+        if: always() && steps.pinecone.outputs.pinecone_status == 'success'
         with:
           path: pinecone_latest_date.json
           key: pinecone-state-${{ github.run_number }}
 
       - name: Verify saved Pinecone state
-        if: steps.pinecone.outputs.pinecone_status == 'success'
+        if: always() && steps.pinecone.outputs.pinecone_status == 'success'
         run: |
           if [ -f pinecone_latest_date.json ]; then
             echo "✓ Pinecone state file saved successfully"
