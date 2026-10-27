@@ -24,7 +24,7 @@ env:
 
 jobs:
   weekly-updates:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-24.04   # 26.04 apt mirrors were stalling; switch back later if you like
     timeout-minutes: 45
     steps:
       - name: Checkout code
@@ -37,14 +37,23 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
+        timeout-minutes: 15
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
       - name: Install Playwright browsers
+        timeout-minutes: 15
+        # Only the two browsers the scripts use (Firefox: surfacehippy crawl, Chromium: crawl4ai
+        # and groups.io). Skipping WebKit saves a download and its system libraries.
         run: |
-          playwright install
-          playwright install-deps
+          playwright install --with-deps chromium firefox
 
       - name: Run Qdrant keep-alive query
         id: keepalive
@@ -78,6 +87,7 @@ jobs:
           fi
 
       - name: Run Qdrant incremental update
+        timeout-minutes: 25
         id: qdrant
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -135,6 +145,7 @@ jobs:
           fi
 
       - name: Run Pinecone incremental update
+        timeout-minutes: 25
         id: pinecone
         if: always()
         env:
