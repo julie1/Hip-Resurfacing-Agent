@@ -10,6 +10,10 @@ on:
         description: "Pinecone backfill: re-crawl topics newer than this date (YYYY-MM-DD). Leave blank for a normal run."
         required: false
         default: ""
+      qdrant_since_date:
+        description: "Qdrant backfill: re-crawl groups.io topics newer than this date (YYYY-MM-DD). Leave blank for a normal run."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -84,6 +88,7 @@ jobs:
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
           GROUPSIO_COOKIE: ${{ secrets.GROUPSIO_COOKIE }}
+          SINCE_DATE_OVERRIDE: ${{ github.event.inputs.qdrant_since_date }}
         run: |
           set -o pipefail
           echo "Starting Qdrant incremental update..."
@@ -157,6 +162,8 @@ jobs:
             debug_forum_index.html
             debug_board.html
             pinecone_update.log
+            groupsio_failure.png
+            groupsio_failure.html
 
       - name: Save Pinecone state cache
         uses: actions/cache/save@v5
