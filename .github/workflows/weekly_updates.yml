@@ -24,7 +24,7 @@ env:
 
 jobs:
   weekly-updates:
-    runs-on: ubuntu-24.04   # 26.04 apt mirrors were stalling; switch back later if you like
+    runs-on: ubuntu-26.04   # 26.04 apt mirrors were stalling; switch back later if you like
     timeout-minutes: 45
     steps:
       - name: Checkout code
