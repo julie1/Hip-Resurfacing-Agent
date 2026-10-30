@@ -31,8 +31,8 @@ tracer = langfuse_config.tracer
 langfuse_client = langfuse_config.langfuse
 
 
-llm = os.getenv('LLM_MODEL', 'gpt-4o-mini')
-model = OpenAIChatModel(llm)
+llm = os.getenv('LLM_MODEL', 'gpt-6-luna')
+model = OpenAIChatModel(llm, settings={'openai_reasoning_effort': 'none'})
 
 
 logfire.configure(send_to_logfire='if-token-present')
@@ -986,11 +986,11 @@ async def evaluate_retrieval(
                 # CHANGED: create langfuse generation directly from the client, not from langfuse_span
                 if ctx.deps.langfuse_client:
                     langfuse_generation = ctx.deps.langfuse_client.start_as_current_observation(
-                        name="evaluation_llm_call", as_type="generation", model="gpt-4o-mini"
+                        name="evaluation_llm_call", as_type="generation", model="gpt-6-luna"
                     ).__enter__()
                     langfuse_generation.update(
                         metadata={
-                            "model": "gpt-4o-mini",
+                            "model": "gpt-6-luna",
                             "input": eval_prompt[:1000]
                         }
                     )
@@ -998,13 +998,16 @@ async def evaluate_retrieval(
                     langfuse_generation = None
 
                 response = await ctx.deps.openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
+                    model="gpt-6-luna",
                     response_format={"type": "json_object"},
                     messages=[
                         {"role": "system", "content": "You are an expert RAG system evaluator. Analyze retrieval quality and response accuracy."},
                         {"role": "user", "content": eval_prompt}
-                    ]
+                    ],
+                    reasoning_effort="none",       # plain, cheap summary call (Luna reasons by default)
+                    max_completion_tokens=250,     # caps summary length and cost; raise it if summaries get cut off
                 )
+               
 
                 evaluation_result = json.loads(response.choices[0].message.content)
 
