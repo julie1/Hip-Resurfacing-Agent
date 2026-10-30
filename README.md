@@ -49,7 +49,7 @@ The Qdrant database table currently contains 23,631 points_count.
                 
 ## LLM   
 
-The app is currently powered by openai's gpt-4o-mini which gave the best results within the current budget. 
+The app was powered by openai's gpt-4o-mini which gave the best results within the current budget.  Do to the deprecation of this model, the app now uses gpt-6-luna.
 
 ## Code
 
