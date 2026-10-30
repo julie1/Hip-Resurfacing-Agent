@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from openai import AsyncOpenAI
+from openai import BadRequestError, NotFoundError
 from pinecone import Pinecone, ServerlessSpec
 from bs4 import BeautifulSoup
 
@@ -208,54 +209,9 @@ async def extract_started_date(html: str) -> str:
     except Exception as e:
         print(f"Error extracting started date: {e}")
         return None
-# async def extract_started_date(html: str) -> str:
-#     """
-#     Extracts the 'Started by ...' date from Surface Hippy forum topic pages.
-#     Example target:
-#     <p>Started by <a href="...">ocwa80</a>, October 09, 2025, 10:36:02 AM</p>
-#     Returns: '2025-10-09' or None if not found.
-#     """
-#     try:
-#         soup = BeautifulSoup(html, "html.parser")
-#
-#         date_pattern = re.compile(
-#             r"(January|February|March|April|May|June|July|August|September|October|November|December)"
-#             r"\s+\d{1,2},\s+\d{4}(?:,\s*\d{1,2}:\d{2}:\d{2}\s*(?:AM|PM))?"
-#         )
-#
-#         # Search every <p> tag's FULL text (get_text merges child tags like <a>),
-#         # instead of tag.string, which only matches a tag with a single text-node child.
-#         started_text = None
-#         for p in soup.find_all("p"):
-#             text = p.get_text(" ", strip=True)
-#             if re.search(r"Started by", text, re.I):
-#                 started_text = text
-#                 break
-#
-#         if not started_text:
-#             # Fallback: scan the whole page's merged text, not a single text node
-#             full_text = soup.get_text(" ", strip=True)
-#             m = re.search(r"Started by\s+.{0,80}?" + date_pattern.pattern, full_text, re.I)
-#             if m:
-#                 started_text = m.group(0)
-#
-#         if started_text:
-#             m = date_pattern.search(started_text)
-#             if m:
-#                 date_str = m.group(0)
-#                 for fmt in ("%B %d, %Y, %I:%M:%S %p", "%B %d, %Y"):
-#                     try:
-#                         dt = datetime.strptime(date_str, fmt)
-#                         return dt.strftime("%Y-%m-%d")
-#                     except Exception:
-#                         continue
-#
-#         print("⚠️ Could not find 'Started by' date pattern in topic page.")
-#         return None
-#     except Exception as e:
-#         print(f"Error extracting started date: {e}")
-#         return None
 
+
+DEFAULT_SUMMARY_MODEL = "gpt-6-luna"
 
 
 
@@ -278,15 +234,21 @@ Focus on what makes THIS post unique and valuable, not generic forum information
 
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=os.getenv("SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL),
             messages=[
                 {"role": "system", "content": summary_prompt},
                 {"role": "user", "content": f"Forum Post Content:\n{content_sample}"}
             ],
-            max_tokens=150,  # Limit summary length
-            temperature=0.3  # Lower temperature for more consistent summaries
+            # GPT-6 models reason by default (medium). "none" keeps this a plain, cheap summarisation call
+            # and is also what allows temperature to be set.
+            reasoning_effort="none",
+            max_completion_tokens=150,  # Limit summary length (replaces max_tokens)
+            temperature=0.3,            # More consistent summaries
         )
-        return response.choices[0].message.content.strip()
+    except (NotFoundError, BadRequestError):
+        # Unknown / retired model or invalid parameters: fail loudly instead of silently
+        # storing "Forum discussion about ..." placeholders for every topic.
+        raise
     except Exception as e:
         print(f"Error generating summary: {e}")
         return f"Forum discussion about {title}"
