@@ -44,7 +44,7 @@ from combine_agents_langfuse import hip_rag_agent, CombinedDeps
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
-llm_model = st.secrets.get("LLM_MODEL", "gpt-4o-mini")
+llm_model = st.secrets.get("LLM_MODEL", "gpt-6-luna")
 TOKEN_LIMIT = 100000  # Set a conservative token limit
 
 # Initialize clients
@@ -267,26 +267,35 @@ def render_sidebar_feedback(st, feedback_collector, session_id, selected_source)
 
 
 
-def count_tokens(messages):
-    """Count tokens in a list of messages."""
+def get_encoding_for(model_name):
+    """tiktoken doesn't know newer model names yet; fall back to the gpt-4o / GPT-5 tokenizer."""
     try:
-        encoding = tiktoken.encoding_for_model(llm_model)
+        return tiktoken.encoding_for_model(model_name)
+    except KeyError:
+        return tiktoken.get_encoding("o200k_base")
+
+
+def count_tokens(messages):
+    """Count tokens in a list of messages (an estimate for models tiktoken doesn't know)."""
+    try:
+        encoding = get_encoding_for(llm_model)
         total_tokens = 0
 
         for msg in messages:
             if isinstance(msg, (ModelRequest, ModelResponse)):
                 for part in msg.parts:
                     if hasattr(part, 'content'):
-                        total_tokens += len(encoding.encode(part.content))
+                        content = part.content if isinstance(part.content, str) else str(part.content)
+                        total_tokens += len(encoding.encode(content))
 
         return total_tokens
     except Exception as e:
         # Fallback to approximate counting
         st.error(f"Error counting tokens: {e}")
-        total_chars = sum(len(part.content) for msg in messages
-                       for part in msg.parts
-                       if isinstance(msg, (ModelRequest, ModelResponse)) and hasattr(part, 'content'))
-        return total_chars // 4  # Rough approximation
+        total_chars = sum(len(str(part.content)) for msg in messages
+                          for part in msg.parts
+                          if isinstance(msg, (ModelRequest, ModelResponse)) and hasattr(part, 'content'))
+        return total_chars // 4
 
 def display_message_part(part):
     """
