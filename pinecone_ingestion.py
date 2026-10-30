@@ -245,6 +245,7 @@ Focus on what makes THIS post unique and valuable, not generic forum information
             max_completion_tokens=150,  # Limit summary length (replaces max_tokens)
             temperature=0.3,            # More consistent summaries
         )
+        return response.choices[0].message.content.strip()
     except (NotFoundError, BadRequestError):
         # Unknown / retired model or invalid parameters: fail loudly instead of silently
         # storing "Forum discussion about ..." placeholders for every topic.
