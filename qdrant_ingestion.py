@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError, NotFoundError
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
@@ -216,13 +216,19 @@ async def generate_summary(text: str, openai_client: AsyncOpenAI) -> str:
 
     try:
         response = await openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-6-luna",
             messages=[
                 {"role": "system", "content": summary_prompt},
                 {"role": "user", "content": f"Content:\n{text[:2000]}..."}
-            ]
+            ],
+            reasoning_effort="none",       # plain, cheap summary call (Luna reasons by default)
+            max_completion_tokens=250,     # caps summary length and cost; raise it if summaries get cut off
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content.strip()
+    except (NotFoundError, BadRequestError):
+        # Unknown or retired model, or invalid parameters: fail loudly instead of
+        # storing "Error generating summary" as the summary for every topic.
+        raise
     except Exception as e:
         print(f"Error generating summary: {e}")
         return "Error generating summary"
